@@ -83,11 +83,15 @@ async def fetch_appx_html_to_json(session: aiohttp.ClientSession, url: str, head
             try:
                 if data:
                     async with session.post(url, headers=headers, data=data) as response:
+                        status = response.status
                         text = await response.text()
                 else:
                     async with session.get(url, headers=headers) as response:
+                        status = response.status
                         text = await response.text()
 
+                if status not in (200, 201):
+                    logging.warning(f"Appx HTTP {status} from {url} | body: {text[:300]}")
                 if not text or text.strip() == "":
                     logging.warning(f"Appx: empty response from {url}")
                     continue
@@ -213,15 +217,20 @@ async def login_appx_user(session: aiohttp.ClientSession, bot: Client, m: Messag
     ]
 
     res = None
-    for hdrs in header_variants:
+    last_msg = "All auth variants failed — server returned no valid response."
+    for i, hdrs in enumerate(header_variants):
+        logging.info(f"Appx login attempt {i+1}/4 with Auth-Key={hdrs.get('Auth-Key')} source={hdrs.get('source')}")
         res = await fetch_appx_html_to_json(session, login_url, headers=hdrs, data=login_data)
         if res and res.get("status") == 200 and res.get("data"):
+            logging.info(f"Appx login succeeded on variant {i+1}")
             break
+        if res:
+            last_msg = res.get("message", f"Server returned status {res.get('status','?')} on variant {i+1}")
         await asyncio.sleep(0.5)
 
     if not res or res.get("status") != 200 or not res.get("data"):
-        msg = res.get("message", "Invalid credentials or login API endpoint mismatch.") if res else "No response from server. App may use non-standard auth."
-        await editable.edit(f"**Login Failed! ❌**\n`Reason: {msg}`")
+        msg = last_msg
+        await editable.edit(f"**Login Failed! ❌**\n`Reason: {msg}`\n\n**Try using JWT Token directly (Option 2) instead of credentials.**")
         return None, None, None
 
     data = res["data"]
