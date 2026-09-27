@@ -88,6 +88,9 @@ async def fetch_appx_html_to_json(session: aiohttp.ClientSession, url: str, head
                     async with session.get(url, headers=headers) as response:
                         text = await response.text()
 
+                if not text or text.strip() == "":
+                    logging.warning(f"Appx: empty response from {url}")
+                    continue
                 try:
                     return json.loads(text)
                 except json.JSONDecodeError:
@@ -116,6 +119,7 @@ async def fetch_appx_html_to_json(session: aiohttp.ClientSession, url: str, head
                 logging.exception(f"Appx Unexpected error for {url}: {e}")
             if attempt < 2:
                 await asyncio.sleep(1.5 ** attempt)
+        logging.warning(f"Appx: all attempts failed for {url}")
         return None
 
 
@@ -616,9 +620,11 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             extracted_jwt_userid = extract_user_id_from_jwt(token) if token else "0"
             formatted_token = f"{token}" if token and not token.startswith("Bearer ") else token
 
+            # detect classx vs legacy appx from api url
+            auth_key = "classx" if "classx.co.in" in api else "appxapi"
             headers = {
                 "Client-Service": "Appx",
-                "Auth-Key": "appxapi",
+                "Auth-Key": auth_key,
                 "source": "website",
             }
             if token:
