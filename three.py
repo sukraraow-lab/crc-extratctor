@@ -198,23 +198,25 @@ async def login_appx_user(session: aiohttp.ClientSession, bot: Client, m: Messag
 
     await editable.edit("🔑 **Authenticating with Appx servers...**")
 
-    headers = {
-        "Client-Service": "Appx",
-        "Auth-Key": "appxapi",
-        "source": "website",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-
     login_url = f"{api}/post/userlogin"
-    login_data = {
-        "email": mobile,
-        "password": password
-    }
+    login_data = {"email": mobile, "password": password}
 
-    res = await fetch_appx_html_to_json(session, login_url, headers=headers, data=login_data)
+    header_variants = [
+        {"Client-Service": "Appx", "Auth-Key": "appxapi", "source": "website", "Content-Type": "application/x-www-form-urlencoded"},
+        {"Client-Service": "Appx", "Auth-Key": "appxapi", "source": "app", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "okhttp/4.9.2"},
+        {"Client-Service": "Appx", "Auth-Key": "classx", "source": "website", "Content-Type": "application/x-www-form-urlencoded"},
+        {"Client-Service": "Appx", "Auth-Key": "classx", "source": "app", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "okhttp/4.9.2"},
+    ]
+
+    res = None
+    for hdrs in header_variants:
+        res = await fetch_appx_html_to_json(session, login_url, headers=hdrs, data=login_data)
+        if res and res.get("status") == 200 and res.get("data"):
+            break
+        await asyncio.sleep(0.5)
 
     if not res or res.get("status") != 200 or not res.get("data"):
-        msg = res.get("message", "Invalid credentials or login API endpoint mismatch.") if res else "No response from server."
+        msg = res.get("message", "Invalid credentials or login API endpoint mismatch.") if res else "No response from server. App may use non-standard auth."
         await editable.edit(f"**Login Failed! ❌**\n`Reason: {msg}`")
         return None, None, None
 
