@@ -643,21 +643,64 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             try: await editable.delete()
             except: pass
             editable = await m.reply_text("**Fetching Available Courses... 🔍**")
-            res1 = await fetch_appx_html_to_json(session, f"{api}/get/courselist", headers)
-            res2 = await fetch_appx_html_to_json(session, f"{api}/get/courselistnewv2", headers)
 
-            courses1 = res1.get("data", []) if res1 and res1.get('status') == 200 else []
-            courses2 = res2.get("data", []) if res2 and res2.get('status') == 200 else []
-            courses3 = []
+            # endpoint variants: legacy appx → classx v1 → classx v2
+            course_endpoints = [
+                (f"{api}/get/courselist", "data"),
+                (f"{api}/get/courselistnewv2", "data"),
+                (f"{api}/api/v1/course/my-courses", "courses"),
+                (f"{api}/api/v2/course/my-courses", "courses"),
+                (f"{api}/api/v1/course/all", "courses"),
+                (f"{api}/get/courselistv3", "data"),
+            ]
+            mycourse_endpoints = [
+                f"{api}/get/mycourse",
+                f"{api}/api/v1/course/purchased",
+                f"{api}/api/v2/course/purchased",
+            ]
+
+            courses1, courses2, courses3 = [], [], []
+
+            for ep, key in course_endpoints[:2]:
+                r = await fetch_appx_html_to_json(session, ep, headers)
+                if r and r.get("status") == 200:
+                    d = r.get("data", [])
+                    if isinstance(d, list) and d:
+                        courses1 = d
+                        break
+
+            for ep, key in course_endpoints[2:]:
+                r = await fetch_appx_html_to_json(session, ep, headers)
+                if r and (r.get("status") == 200 or r.get("statusCode") == 200):
+                    d = r.get(key) or r.get("data", [])
+                    if isinstance(d, list) and d:
+                        courses2 = d
+                        break
 
             if token:
-                res3 = await fetch_appx_html_to_json(session, f"{api}/get/mycourse", headers)
-                if res3 and res3.get('status') == 200:
-                    courses3 = res3.get("data", [])
+                for ep in mycourse_endpoints:
+                    r = await fetch_appx_html_to_json(session, ep, headers)
+                    if r and (r.get("status") == 200 or r.get("statusCode") == 200):
+                        d = r.get("data") or r.get("courses", [])
+                        if isinstance(d, list) and d:
+                            courses3 = d
+                            break
 
             courses = courses3 + courses1 + courses2
+            # normalize classx course shape to appx shape
+            normalized = []
+            for c in courses:
+                if "course_name" not in c and "name" in c:
+                    c["course_name"] = c["name"]
+                if "price" not in c and "fee" in c:
+                    c["price"] = c["fee"]
+                if "course_id" not in c and "id" in c:
+                    c["course_id"] = c["id"]
+                normalized.append(c)
+            courses = normalized
+
             if not courses:
-                await editable.edit("**Did not find any course! ❌\nCheck if token is expired or if the App API endpoint is valid.**")
+                await editable.edit("**Did not find any course! ❌\nThis app may use a non-standard course API. Try entering JWT Token directly (Option 2).**")
                 return
 
             total = len(courses)
