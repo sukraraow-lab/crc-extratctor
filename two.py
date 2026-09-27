@@ -4,6 +4,8 @@ import os
 import re
 import time
 import uuid
+import random
+import string
 from typing import Any, Dict, List, Optional, Tuple
 import aiohttp
 from pyrogram import Client, filters
@@ -11,6 +13,23 @@ from pyrogram.types import Message
 
 from helpers import ask_user, is_authorized
 
+
+
+def _rand_device_id() -> str:
+    return ''.join(random.choices('0123456789abcdef', k=32))
+
+def _rand_device_details() -> str:
+    return random.choice([
+        "Xiaomi_Redmi Note 10_SDK-31",
+        "Samsung_Galaxy M32_SDK-30",
+        "OnePlus_Nord CE_SDK-32",
+        "Realme_8 Pro_SDK-31",
+        "Poco_X3 Pro_SDK-31",
+    ])
+
+def _rand_luid() -> str:
+    h = lambda n: ''.join(random.choices('0123456789abcdef', k=n))
+    return f"00000187-{h(4)}-{h(4)}-{h(4)}-{h(12)}"
 
 class ProcessCancelledException(Exception):
     """Custom exception raised when a process is cancelled by the user."""
@@ -259,16 +278,19 @@ async def process_cpwp(bot: Client, m: Message, user_id: int):
         'build-number': '35',
         'connection': 'Keep-Alive',
         'content-type': 'application/json',
-        'device-details': 'Xiaomi_Redmi 7_SDK-32',
-        'device-id': 'cc4473819ba3ee7f51f560f801574304',
+        'device-details': _rand_device_details(),
+        'device-id': _rand_device_id(),
         'host': 'api.classplusapp.com',
         'region': 'IN',
         'user-agent': 'Mobile-Android',
-        'webengage-luid': '00000187-6fe4-5d41-a530-26186858be4c'
+        'webengage-luid': _rand_luid()
     }
 
-    connector = aiohttp.TCPConnector(limit=1000)
-    async with aiohttp.ClientSession(connector=connector) as session:
+    _did = _rand_device_id()
+    headers['device-id'] = _did
+    timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=30)
+    connector = aiohttp.TCPConnector(limit=1000, ttl_dns_cache=300)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         editable = None
         file_path = None
         try:
@@ -326,7 +348,7 @@ async def process_cpwp(bot: Client, m: Message, user_id: int):
                     "countryExt": "91",
                     "sessionId": str(session_id),
                     "orgId": int(org_id),
-                    "fingerprintId": headers.get("device-id", "cc4473819ba3ee7f51f560f801574304"),
+                    "fingerprintId": _did,
                     "mobile": raw_input
                 }
                 async with session.post("https://api.classplusapp.com/v2/users/verify", json=verify_payload, headers=otp_headers) as verify_resp:
