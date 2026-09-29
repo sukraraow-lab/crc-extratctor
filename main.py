@@ -1,6 +1,9 @@
+# ZeroTrace Bot — main.py
 import asyncio
 import logging
 import os
+import signal
+import sys
 import threading
 import time
 
@@ -15,14 +18,25 @@ from three import register_appxwp_handlers
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+log = logging.getLogger(__name__)
+
+# ─── SIGTERM handler — ensures finally blocks run on Render/Railway shutdown ──
+
+def _handle_sigterm(signum, frame):
+    log.info("SIGTERM received — shutting down cleanly.")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
+
 
 # ─── WEB HEALTH SERVER ────────────────────────────────────────────────────────
 # Render kills worker processes if they don't bind a port when type=web.
-# We use type=worker in Procfile, but keep this server anyway as a safety net.
+# We use type=worker in Procfile but keep a health server as a safety net.
 
 _web_ready = threading.Event()
+
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
@@ -38,11 +52,10 @@ def run_web():
         def healthz():
             return "ok", 200
 
-        # signal ready before blocking
         _web_ready.set()
         app.run(host="0.0.0.0", port=port, use_reloader=False)
     except Exception as e:
-        logging.warning(f"Flask failed ({e}), falling back to stdlib server")
+        log.warning("Flask failed (%s), falling back to stdlib server", e)
         import http.server
         import socketserver
 
@@ -51,6 +64,7 @@ def run_web():
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"ZeroTrace Bot running")
+
             def log_message(self, *args):
                 pass
 
@@ -58,10 +72,11 @@ def run_web():
         with socketserver.TCPServer(("", port), QuietHandler) as httpd:
             httpd.serve_forever()
 
-# start web in background, wait until port is bound before starting bot
+
 _web_thread = threading.Thread(target=run_web, daemon=True)
 _web_thread.start()
-_web_ready.wait(timeout=10)   # give Flask up to 10s to bind port
+_web_ready.wait(timeout=10)
+
 
 # ─── BOT ──────────────────────────────────────────────────────────────────────
 
@@ -82,7 +97,7 @@ async def start(client: Client, message: Message):
 
 
 @bot.on_message(filters.command(["help"]))
-async def help(client: Client, message: Message):
+async def help_cmd(client: Client, message: Message):
     help_text = (
         "**📖 ZeroTrace — Course Extractor 📖**\n\n"
         "<blockquote>Extracts course content (videos, PDFs, notes) from supported "
@@ -115,5 +130,5 @@ register_cpwp_handlers(bot)
 register_appxwp_handlers(bot)
 
 if __name__ == "__main__":
-    logging.info("Starting ZeroTrace bot...")
+    log.info("Starting ZeroTrace bot...")
     bot.run()
