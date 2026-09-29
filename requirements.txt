@@ -1,11 +1,11 @@
-kurigram
+pyrogram==2.0.106
+pyromod==3.1.6
+tgcrypto
+aiohttp
+aiofiles
 requests
 cloudscraper
 beautifulsoup4==4.12.2
-bs4==0.0.2
-aiohttp
-aiofiles
-yt-dlp
 pycryptodome==3.20.0
 PySocks==1.7.1
 websockets==12.0
@@ -16,4 +16,4 @@ soupsieve==2.5
 python-decouple==3.8
 Flask==3.0.3
 gunicorn==22.0.0
-pyromod==3.1.6
+Pillow
