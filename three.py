@@ -335,7 +335,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             )
 
             try:
-                inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                 app_input = (inp.text or "").strip()
                 await inp.delete(True)
             except ListenerTimeout:
@@ -372,7 +372,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                         "<blockquote>❌ `/cancel` to abort.</blockquote>"
                     )
                     try:
-                        inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                        inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                         idx = (inp.text or "").strip()
                         await inp.delete(True)
                     except ListenerTimeout:
@@ -397,7 +397,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "<blockquote>❌ `/cancel` to abort.</blockquote>"
             )
             try:
-                inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                 mode = (inp.text or "").strip()
                 await inp.delete(True)
             except ListenerTimeout:
@@ -416,7 +416,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                     token = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:
@@ -429,7 +429,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                     mobile = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:
@@ -445,7 +445,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters=filters.user(user_id), timeout=120)
+                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
                     password = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:

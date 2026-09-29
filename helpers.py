@@ -27,8 +27,8 @@ async def ask_user(
     await editable.edit(text)
     try:
         msg = await bot.listen(
-            chat_id=m.chat.id,
-            filters=filters.user(user_id),
+            m.chat.id,
+            filters.user(user_id),
             timeout=timeout,
         )
         val = (msg.text or "").strip()
