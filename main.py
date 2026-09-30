@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
+import signal
+import sys
 import threading
-import time
 
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -18,50 +19,59 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# ─── WEB HEALTH SERVER ────────────────────────────────────────────────────────
-# Render kills worker processes if they don't bind a port when type=web.
-# We use type=worker in Procfile, but keep this server anyway as a safety net.
+log = logging.getLogger(__name__)
 
-_web_ready = threading.Event()
+# ─── FLASK HEALTH SERVER ──────────────────────────────────────────────────────
+# Keeps render web-service health checks alive.
+# Runs in a non-daemon thread so it survives SIGTERM to the bot loop.
 
-def run_web():
+_flask_started = threading.Event()
+
+
+def _run_flask():
     port = int(os.environ.get("PORT", 8080))
     try:
         from flask import Flask
-        app = Flask(__name__)
+        app = Flask("zerotrace")
 
         @app.route("/")
-        def health():
-            return "ZeroTrace Bot running ✅", 200
+        def _root():
+            return "ZeroTrace running ✅", 200
 
         @app.route("/health")
-        def healthz():
+        def _health():
             return "ok", 200
 
-        # signal ready before blocking
-        _web_ready.set()
-        app.run(host="0.0.0.0", port=port, use_reloader=False)
-    except Exception as e:
-        logging.warning(f"Flask failed ({e}), falling back to stdlib server")
-        import http.server
-        import socketserver
+        _flask_started.set()
+        # threaded=True keeps it responsive while bot is busy
+        app.run(host="0.0.0.0", port=port,
+                use_reloader=False, threaded=True, debug=False)
+    except Exception as exc:
+        log.warning(f"Flask failed: {exc} — falling back to stdlib")
+        import http.server, socketserver
 
-        class QuietHandler(http.server.BaseHTTPRequestHandler):
+        class _H(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b"ZeroTrace Bot running")
-            def log_message(self, *args):
+                self.wfile.write(b"ZeroTrace running")
+            def do_HEAD(self):
+                self.send_response(200)
+                self.end_headers()
+            def log_message(self, *a):
                 pass
 
-        _web_ready.set()
-        with socketserver.TCPServer(("", port), QuietHandler) as httpd:
-            httpd.serve_forever()
+        _flask_started.set()
+        with socketserver.TCPServer(("", port), _H) as srv:
+            srv.serve_forever()
 
-# start web in background, wait until port is bound before starting bot
-_web_thread = threading.Thread(target=run_web, daemon=True)
-_web_thread.start()
-_web_ready.wait(timeout=10)   # give Flask up to 10s to bind port
+
+# Start flask in a NON-daemon thread — stays up even when bot loop restarts
+_flask_thread = threading.Thread(target=_run_flask, daemon=False)
+_flask_thread.start()
+_flask_started.wait(timeout=15)
+log.info("Flask health server ready.")
+
 
 # ─── BOT ──────────────────────────────────────────────────────────────────────
 
@@ -82,7 +92,7 @@ async def start(client: Client, message: Message):
 
 
 @bot.on_message(filters.command(["help"]))
-async def help(client: Client, message: Message):
+async def help_cmd(client: Client, message: Message):
     help_text = (
         "**📖 ZeroTrace — Course Extractor 📖**\n\n"
         "<blockquote>Extracts course content (videos, PDFs, notes) from supported "
@@ -114,6 +124,40 @@ register_pwwp_handlers(bot)
 register_cpwp_handlers(bot)
 register_appxwp_handlers(bot)
 
+
+# ─── SIGTERM HANDLER ─────────────────────────────────────────────────────────
+# Render sends SIGTERM during rolling deploys to the OLD instance.
+# Default behaviour: Python raises SystemExit which kills bot.run() immediately.
+# Fix: catch SIGTERM, log it, then let the bot finish gracefully.
+# Flask thread stays alive (non-daemon) so render health check keeps passing
+# on the NEW instance while the old one drains.
+
+_shutdown = asyncio.Event()
+
+
+def _handle_sigterm(*_):
+    log.warning("SIGTERM received — initiating graceful shutdown...")
+    # Signal the asyncio loop to stop
+    loop = asyncio.get_event_loop()
+    loop.call_soon_threadsafe(_shutdown.set)
+
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
+signal.signal(signal.SIGINT,  _handle_sigterm)
+
+
+async def _main():
+    log.info("Starting ZeroTrace bot...")
+    await bot.start()
+    log.info("Bot started. Waiting for shutdown signal...")
+
+    # Block here until SIGTERM/SIGINT received
+    await _shutdown.wait()
+
+    log.info("Shutdown signal received. Stopping bot gracefully...")
+    await bot.stop()
+    log.info("Bot stopped cleanly.")
+
+
 if __name__ == "__main__":
-    logging.info("Starting ZeroTrace bot...")
-    bot.run()
+    asyncio.run(_main())
