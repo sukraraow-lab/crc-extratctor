@@ -152,8 +152,16 @@ async def appx_login(
     mobile: str,
     password: str,
 ) -> Optional[str]:
-    """Try all known login endpoints, return token or None."""
-    login_data = {"email": mobile, "password": password}
+    """Try all login endpoints × payload field variants, return token or None."""
+
+    # different appx-based apps use different field names for mobile
+    payload_variants = [
+        {"mob": mobile,      "password": password},  # most common
+        {"email": mobile,    "password": password},  # some apps
+        {"username": mobile, "password": password},  # rare
+        {"mobile": mobile,   "password": password},  # rare
+    ]
+
     endpoints = [
         f"{api}/post/userlogin",
         f"{api}/api/v1/userlogin",
@@ -161,25 +169,48 @@ async def appx_login(
         f"{api}/user/login",
         f"{api}/api/v2/userlogin",
     ]
+
     for endpoint in endpoints:
-        try:
-            res = await appx_post(session, endpoint, login_data)
-            if not res:
-                continue
-            status = res.get("status") or res.get("_status", 0)
-            data = res.get("data") or res.get("user") or {}
-            if (str(status) == "200" or res.get("success")) and data:
-                token = (
-                    data.get("token") or data.get("jwt_token") or
-                    data.get("user_token") or data.get("authToken") or
-                    data.get("auth_token") or
-                    res.get("token") or res.get("jwt_token")
+        for payload in payload_variants:
+            try:
+                res = await appx_post(session, endpoint, payload)
+                if not res:
+                    continue
+
+                status = res.get("status")
+                data   = res.get("data") or res.get("user") or {}
+
+                # appx returns status=1 for success — NOT 200
+                is_ok = (
+                    str(status) == "1"    or
+                    str(status) == "200"  or
+                    res.get("success") is True or
+                    res.get("success") == "true"
                 )
-                if token:
-                    return str(token)
-        except Exception as e:
-            logging.error(f"login endpoint {endpoint}: {e}")
-            continue
+
+                if is_ok and data:
+                    token = (
+                        data.get("token")        or data.get("jwt_token")   or
+                        data.get("user_token")   or data.get("authToken")   or
+                        data.get("auth_token")   or data.get("access_token") or
+                        res.get("token")         or res.get("jwt_token")
+                    )
+                    if token:
+                        logging.info(f"appx login OK: {endpoint} fields={list(payload.keys())}")
+                        return str(token)
+
+                # log non-success for debugging
+                logging.info(
+                    f"appx login miss: {endpoint} "
+                    f"fields={list(payload.keys())} "
+                    f"status={status} "
+                    f"data_keys={list(data.keys()) if isinstance(data, dict) else data}"
+                )
+
+            except Exception as e:
+                logging.error(f"login {endpoint}: {e}")
+                continue
+
     return None
 
 
