@@ -1,4 +1,3 @@
-# ZeroTrace Bot — helpers.py
 import logging
 import re
 from base64 import b64decode
@@ -11,8 +10,6 @@ from pyrogram.types import Message
 from pyromod.exceptions import ListenerTimeout
 
 from config import auth_users
-
-log = logging.getLogger(__name__)
 
 
 def is_authorized(user_id: int) -> bool:
@@ -29,22 +26,23 @@ async def ask_user(
 ) -> Optional[str]:
     await editable.edit(text)
     try:
-        msg = await bot.listen(
-            m.chat.id,
-            filters.user(user_id),
-            timeout=timeout,
-        )
-        val = (msg.text or "").strip()
-        try:
-            await msg.delete(True)
-        except Exception:
-            pass
-        return val
+        # pyromod 3.x: listen(chat_id, timeout=N) — no filter arg supported
+        # validate user_id manually after receiving
+        while True:
+            msg = await bot.listen(m.chat.id, timeout=timeout)
+            if msg.from_user and msg.from_user.id == user_id:
+                val = (msg.text or "").strip()
+                try:
+                    await msg.delete(True)
+                except Exception:
+                    pass
+                return val
+            # message from wrong user — ignore and keep listening
     except ListenerTimeout:
         await editable.edit("**⏱ Timeout! You took too long to respond.**")
         return None
     except Exception as e:
-        log.exception("Error during input listener:")
+        logging.exception("Error during input listener:")
         await editable.edit(f"**Error:** `{e}`")
         return None
 
@@ -52,16 +50,15 @@ async def ask_user(
 def extract_url_from_video_details(item: Dict) -> str:
     v_details = item.get("videoDetails") or {}
     url = (
-        v_details.get("videoUrl")    or v_details.get("embedCode")   or
-        v_details.get("mediaUrl")    or v_details.get("streamUrl")   or
-        v_details.get("hlsUrl")      or v_details.get("mpdUrl")      or
-        v_details.get("downloadUrl") or v_details.get("url")         or
-        v_details.get("fileUrl")     or item.get("videoUrl")         or
-        item.get("mediaUrl")         or item.get("streamUrl")        or
-        item.get("hlsUrl")           or item.get("mpdUrl")           or
-        item.get("url")              or ""
+        v_details.get("videoUrl") or v_details.get("embedCode") or
+        v_details.get("mediaUrl") or v_details.get("streamUrl") or
+        v_details.get("hlsUrl") or v_details.get("mpdUrl") or
+        v_details.get("downloadUrl") or v_details.get("url") or
+        v_details.get("fileUrl") or item.get("videoUrl") or
+        item.get("mediaUrl") or item.get("streamUrl") or
+        item.get("hlsUrl") or item.get("mpdUrl") or
+        item.get("url") or ""
     )
-    # unwrap iframe embed codes
     if url and ("<" in url or "iframe" in url.lower() or "src=" in url.lower()):
         match = re.search(r'src=["\'](https?://[^"\']+)["\']', url)
         if match:
@@ -71,49 +68,29 @@ def extract_url_from_video_details(item: Dict) -> str:
     return url
 
 
-# ─── Appx AES decrypt ─────────────────────────────────────────────────────────
-
-# Try newest key/IV pairs first; add new pairs at the top when Appx rotates keys.
-_APPX_KEYS = [
-    (b"appx20222023key1", b"appxiv1234567890"),  # rotation 2 (newest)
-    (b"appxapikey123456", b"fedcba9876543210"),  # rotation 1
-    (b"638udh3829162018", b"fedcba9876543210"),  # original
-]
-
-
 def appx_decrypt(enc: str) -> str:
-    """
-    Decrypt an Appx-encrypted URL string.
-    Format: <base64-encoded-ciphertext>[:<ignored-suffix>]
-    Returns the plaintext URL or "" on failure.
-    """
     if not enc:
         return ""
-
-    # Normalise: strip any suffix after ':', fix padding
-    raw_b64 = enc.split(":")[0]
-    # Add missing base64 padding
-    raw_b64 += "=" * (-len(raw_b64) % 4)
-    # Appx sometimes uses URL-safe base64
-    raw_b64 = raw_b64.replace("-", "+").replace("_", "/")
-
+    # known key/iv pairs — try newest first
+    KEYS = [
+        (b"638udh3829162018", b"fedcba9876543210"),  # original
+        (b"appxapikey123456", b"fedcba9876543210"),  # rotation 1
+        (b"appx20222023key1", b"appxiv1234567890"),  # rotation 2
+    ]
     try:
-        enc_bytes = b64decode(raw_b64)
-    except Exception as e:
-        log.debug("appx_decrypt: base64 decode failed for %r: %s", enc[:40], e)
-        return ""
-
-    if not enc_bytes:
-        return ""
-
-    for key, iv in _APPX_KEYS:
-        try:
-            cipher = AES.new(key, AES.MODE_CBC, iv)
-            result = unpad(cipher.decrypt(enc_bytes), AES.block_size).decode("utf-8")
-            if result:
-                return result
-        except Exception:
-            continue
-
-    log.warning("appx_decrypt: all keys failed for enc prefix %r", enc[:40])
+        enc_bytes = b64decode(enc.split(":")[0])
+        if not enc_bytes:
+            return ""
+        for key, iv in KEYS:
+            try:
+                cipher = AES.new(key, AES.MODE_CBC, iv)
+                result = unpad(
+                    cipher.decrypt(enc_bytes), AES.block_size
+                ).decode("utf-8")
+                if result:
+                    return result
+            except Exception:
+                continue
+    except Exception:
+        pass
     return ""

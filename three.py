@@ -20,6 +20,15 @@ from config import auth_users
 
 SEMAPHORE = asyncio.Semaphore(10)
 
+async def safe_listen(bot, chat_id: int, user_id: int, timeout: int = 120):
+    """pyromod 3.x compatible listen — no filter arg, validate user manually."""
+    from pyromod.exceptions import ListenerTimeout
+    while True:
+        msg = await bot.listen(chat_id, timeout=timeout)
+        if msg.from_user and msg.from_user.id == user_id:
+            return msg
+
+
 
 class ProcessCancelledException(Exception):
     pass
@@ -335,7 +344,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             )
 
             try:
-                inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                inp = await safe_listen(bot, m.chat.id, user_id)
                 app_input = (inp.text or "").strip()
                 await inp.delete(True)
             except ListenerTimeout:
@@ -372,7 +381,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                         "<blockquote>❌ `/cancel` to abort.</blockquote>"
                     )
                     try:
-                        inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                        inp = await safe_listen(bot, m.chat.id, user_id)
                         idx = (inp.text or "").strip()
                         await inp.delete(True)
                     except ListenerTimeout:
@@ -397,7 +406,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "<blockquote>❌ `/cancel` to abort.</blockquote>"
             )
             try:
-                inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                inp = await safe_listen(bot, m.chat.id, user_id)
                 mode = (inp.text or "").strip()
                 await inp.delete(True)
             except ListenerTimeout:
@@ -416,7 +425,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                    inp = await safe_listen(bot, m.chat.id, user_id)
                     token = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:
@@ -429,7 +438,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                    inp = await safe_listen(bot, m.chat.id, user_id)
                     mobile = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:
@@ -445,7 +454,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     "<blockquote>❌ `/cancel` to abort.</blockquote>"
                 )
                 try:
-                    inp = await bot.listen(m.chat.id, filters.user(user_id), timeout=120)
+                    inp = await safe_listen(bot, m.chat.id, user_id)
                     password = (inp.text or "").strip()
                     await inp.delete(True)
                 except ListenerTimeout:
