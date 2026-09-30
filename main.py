@@ -1,10 +1,8 @@
-import asyncio
 import logging
 import os
-import signal
 import threading
 
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from pyromod import listen
 
@@ -59,7 +57,7 @@ def _run_flask():
         with socketserver.TCPServer(("", port), _H) as srv:
             srv.serve_forever()
 
-# non-daemon so flask outlives SIGTERM to old instance
+# non-daemon — survives SIGTERM sent to old instance during rolling deploy
 _flask_thread = threading.Thread(target=_run_flask, daemon=False)
 _flask_thread.start()
 _flask_ready.wait(timeout=15)
@@ -117,17 +115,10 @@ register_cpwp_handlers(bot)
 register_appxwp_handlers(bot)
 
 # ─── RUN ──────────────────────────────────────────────────────────────────────
-
-async def _main():
-    log.info("Starting ZeroTrace bot...")
-    await bot.start()
-    log.info("Bot started — handlers active, listening for messages.")
-    # idle() keeps the event loop running AND processes incoming updates
-    # SIGTERM/SIGINT → idle() catches it and exits cleanly
-    await idle()
-    log.info("Stopping bot...")
-    await bot.stop()
-    log.info("Bot stopped cleanly.")
+# bot.run() manages its own event loop internally.
+# No asyncio.run() wrapper — avoids "Future attached to different loop" error.
+# Pyrogram handles SIGTERM/SIGINT natively inside bot.run().
 
 if __name__ == "__main__":
-    asyncio.run(_main())
+    log.info("Starting ZeroTrace bot...")
+    bot.run()
