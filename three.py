@@ -81,12 +81,66 @@ def clean_api_url(url: str) -> str:
 
 # ─── HTTP ─────────────────────────────────────────────────────────────────────
 
-APPX_HEADERS = {
-    "Client-Service": "Appx",
-    "Auth-Key": "appxapi",
-    "source": "website",
-    "Content-Type": "application/x-www-form-urlencoded",
-}
+# Header variants — Dart/Flutter UA is what the actual classx mobile app sends
+# classx CDN blocks standard browser UAs from server IPs
+APPX_HEADER_VARIANTS = [
+    {   # Dart/Flutter — what the real Appx app sends (most likely to pass)
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.19 (dart:io)",
+    },
+    {   # Dart older version
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.16 (dart:io)",
+    },
+    {   # website source
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "website",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.19 (dart:io)",
+    },
+    {   # Android mobile browser
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
+    },
+    {   # classx auth key variant
+        "Client-Service": "Appx",
+        "Auth-Key": "classx",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.19 (dart:io)",
+    },
+]
+
+# default for non-login requests
+APPX_HEADERS = APPX_HEADER_VARIANTS[0]
+
+
+def _try_parse_json(text: str) -> Optional[Any]:
+    """Parse JSON — also handles PHP serialized or wrapped responses."""
+    text = text.strip()
+    if not text:
+        return None
+    # direct JSON
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    # sometimes wrapped in extra quotes or has BOM
+    try:
+        return json.loads(text.lstrip("\ufeff").strip('"').strip("'"))
+    except Exception:
+        pass
+    return None
 
 
 async def appx_get(
@@ -102,13 +156,16 @@ async def appx_get(
         for attempt in range(3):
             try:
                 async with session.get(
-                    url, headers=h, params=params, timeout=aiohttp.ClientTimeout(total=30)
+                    url, headers=h, params=params,
+                    timeout=aiohttp.ClientTimeout(total=30)
                 ) as r:
                     text = await r.text()
-                    try:
-                        return json.loads(text)
-                    except Exception:
-                        return None
+                    parsed = _try_parse_json(text)
+                    if parsed is not None:
+                        return parsed
+                    # log non-json for debug
+                    logging.debug(f"appx_get non-json {url}: {text[:200]}")
+                    return None
             except Exception as e:
                 logging.error(f"appx_get attempt {attempt+1} {url}: {e}")
                 if attempt < 2:
@@ -121,8 +178,9 @@ async def appx_post(
     url: str,
     data: dict,
     token: str = "",
+    headers_override: dict = None,
 ) -> Optional[Any]:
-    h = dict(APPX_HEADERS)
+    h = dict(headers_override or APPX_HEADERS)
     if token:
         h["Authorization"] = token
     async with SEMAPHORE:
@@ -130,13 +188,16 @@ async def appx_post(
             try:
                 async with session.post(
                     url, headers=h, data=data,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    timeout=aiohttp.ClientTimeout(total=30),
+                    allow_redirects=True,
                 ) as r:
                     text = await r.text()
-                    try:
-                        return json.loads(text)
-                    except Exception:
-                        return {"_raw": text, "_status": r.status}
+                    parsed = _try_parse_json(text)
+                    if parsed is not None:
+                        return parsed
+                    # non-json — return raw with http status
+                    logging.debug(f"appx_post non-json {r.status} {url}: {text[:300]}")
+                    return {"_raw": text, "_http": r.status}
             except Exception as e:
                 logging.error(f"appx_post attempt {attempt+1} {url}: {e}")
                 if attempt < 2:
@@ -146,20 +207,62 @@ async def appx_post(
 
 # ─── LOGIN ────────────────────────────────────────────────────────────────────
 
+def _extract_token_from_res(res: dict) -> Optional[str]:
+    """Pull token out of any known appx response shape."""
+    if not res or not isinstance(res, dict):
+        return None
+
+    status = res.get("status")
+    is_ok  = (
+        str(status) == "1"   or
+        str(status) == "200" or
+        res.get("success") is True or
+        res.get("success") == "true" or
+        res.get("result")  == "success"
+    )
+
+    # grab data from all known locations
+    data = (
+        res.get("data") or res.get("user") or
+        res.get("result_data") or res.get("userdata") or {}
+    )
+    if isinstance(data, list) and data:
+        data = data[0]
+    if not isinstance(data, dict):
+        data = {}
+
+    if is_ok:
+        token = (
+            data.get("token")        or data.get("jwt_token")    or
+            data.get("user_token")   or data.get("authToken")    or
+            data.get("auth_token")   or data.get("access_token") or
+            data.get("api_token")    or
+            res.get("token")         or res.get("jwt_token")     or
+            res.get("access_token")
+        )
+        if token:
+            return str(token)
+
+    return None
+
+
 async def appx_login(
     session: aiohttp.ClientSession,
     api: str,
     mobile: str,
     password: str,
 ) -> Optional[str]:
-    """Try all login endpoints × payload field variants, return token or None."""
+    """
+    Exhaustive login: endpoints × payload fields × header variants.
+    Logs every attempt so render logs show exactly what the server returns.
+    """
 
-    # different appx-based apps use different field names for mobile
     payload_variants = [
-        {"mob": mobile,      "password": password},  # most common
-        {"email": mobile,    "password": password},  # some apps
-        {"username": mobile, "password": password},  # rare
-        {"mobile": mobile,   "password": password},  # rare
+        {"mob": mobile,      "password": password},
+        {"email": mobile,    "password": password},
+        {"username": mobile, "password": password},
+        {"mobile": mobile,   "password": password},
+        {"phone": mobile,    "password": password},
     ]
 
     endpoints = [
@@ -168,48 +271,56 @@ async def appx_login(
         f"{api}/api/userlogin",
         f"{api}/user/login",
         f"{api}/api/v2/userlogin",
+        f"{api}/api/v1/login",
+        f"{api}/login",
     ]
 
-    for endpoint in endpoints:
-        for payload in payload_variants:
-            try:
-                res = await appx_post(session, endpoint, payload)
-                if not res:
-                    continue
-
-                status = res.get("status")
-                data   = res.get("data") or res.get("user") or {}
-
-                # appx returns status=1 for success — NOT 200
-                is_ok = (
-                    str(status) == "1"    or
-                    str(status) == "200"  or
-                    res.get("success") is True or
-                    res.get("success") == "true"
-                )
-
-                if is_ok and data:
-                    token = (
-                        data.get("token")        or data.get("jwt_token")   or
-                        data.get("user_token")   or data.get("authToken")   or
-                        data.get("auth_token")   or data.get("access_token") or
-                        res.get("token")         or res.get("jwt_token")
+    for h_variant in APPX_HEADER_VARIANTS:
+        for endpoint in endpoints:
+            for payload in payload_variants:
+                try:
+                    res = await appx_post(
+                        session, endpoint, payload,
+                        headers_override=h_variant,
                     )
+                    if not res:
+                        continue
+
+                    # non-JSON response — log full body for debugging
+                    if "_raw" in res:
+                        raw  = res["_raw"][:300].strip()
+                        http = res.get("_http", "?")
+                        logging.warning(
+                            f"appx login HTTP={http} {endpoint} "
+                            f"fields={list(payload.keys())} "
+                            f"ua={h_variant.get('User-Agent','')[:20]} "
+                            f"body={raw}"
+                        )
+                        # if 403 — IP blocked, no point trying more payloads on this endpoint
+                        if http == 403:
+                            break
+                        continue
+
+                    token = _extract_token_from_res(res)
                     if token:
-                        logging.info(f"appx login OK: {endpoint} fields={list(payload.keys())}")
-                        return str(token)
+                        logging.info(
+                            f"appx login OK: {endpoint} "
+                            f"fields={list(payload.keys())} "
+                            f"headers=source:{h_variant.get('source')} "
+                            f"auth:{h_variant.get('Auth-Key')}"
+                        )
+                        return token
 
-                # log non-success for debugging
-                logging.info(
-                    f"appx login miss: {endpoint} "
-                    f"fields={list(payload.keys())} "
-                    f"status={status} "
-                    f"data_keys={list(data.keys()) if isinstance(data, dict) else data}"
-                )
+                    logging.info(
+                        f"appx login miss: {endpoint} "
+                        f"fields={list(payload.keys())} "
+                        f"status={res.get('status')} "
+                        f"keys={list(res.keys())}"
+                    )
 
-            except Exception as e:
-                logging.error(f"login {endpoint}: {e}")
-                continue
+                except Exception as e:
+                    logging.error(f"login {endpoint}: {e}")
+                    continue
 
     return None
 
@@ -502,7 +613,16 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 if not token:
                     await editable.edit(
                         "**Login Failed ❌**\n\n"
-                        "All endpoints tried. Check mobile/password or try token mode."
+                        "<blockquote>The server blocked all login attempts "
+                        "(likely IP restriction on the API).</blockquote>\n\n"
+                        "**→ Use Token Mode instead:**\n\n"
+                        "1. Open your Appx app on phone\n"
+                        "2. Login normally in the app\n"
+                        "3. Open this URL in Chrome after login:\n"
+                        "`javascript:alert(localStorage.getItem('token'))`\n"
+                        "4. Or use Chrome DevTools → Application → Local Storage\n"
+                        "5. Copy the token and paste it here using **Mode 2**\n\n"
+                        "Send /help and choose Appx again → select **Mode 2 (token)**"
                     )
                     return
 
