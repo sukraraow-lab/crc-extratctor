@@ -73,9 +73,24 @@ def search_appx(query: str) -> List[Dict]:
 
 
 def clean_api_url(url: str) -> str:
+    """
+    Convert any URL to the correct API endpoint.
+    classx web URLs: sachinacademy.classx.co.in
+    classx API URLs: sachinacademyapi.classx.co.in  ← what we need
+    """
     url = url.strip().rstrip("/")
     if not url.startswith("http"):
         url = "https://" + url
+
+    # auto-fix classx web domain → API domain
+    # e.g. sachinacademy.classx.co.in → sachinacademyapi.classx.co.in
+    import re as _re
+    url = _re.sub(
+        r'https?://([a-z0-9\-]+)(\.classx\.co\.in)',
+        lambda m: f"https://{m.group(1)}api{m.group(2)}"
+        if not m.group(1).endswith("api") else f"https://{m.group(1)}{m.group(2)}",
+        url
+    )
     return url
 
 
@@ -192,10 +207,13 @@ async def appx_post(
                     allow_redirects=True,
                 ) as r:
                     text = await r.text()
+                    # if response looks like HTML — treat as raw regardless of status
+                    if text.strip().startswith(("<!DOCTYPE", "<html", "<!doctype")):
+                        logging.debug(f"appx_post HTML response {r.status} {url}")
+                        return {"_raw": text, "_http": r.status}
                     parsed = _try_parse_json(text)
                     if parsed is not None:
                         return parsed
-                    # non-json — return raw with http status
                     logging.debug(f"appx_post non-json {r.status} {url}: {text[:300]}")
                     return {"_raw": text, "_http": r.status}
             except Exception as e:
@@ -258,10 +276,11 @@ async def appx_login(
     Logs full server response for debugging.
     """
 
-    # payload field variants — try mob first (most common in classx)
+    # logs show sachinacademy returns 400 on "mob", succeeds on "email"
+    # try email first, then mob as fallback for other apps
     payload_variants = [
-        {"mob": mobile,   "password": password},
         {"email": mobile, "password": password},
+        {"mob": mobile,   "password": password},
     ]
 
     # endpoints ordered by likelihood — /post/userlogin is classic appx
