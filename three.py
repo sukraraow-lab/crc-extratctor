@@ -32,7 +32,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
             uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
             
-            await editable.edit("**Testing Classx API endpoints with User ID... 🔍**")
+            await editable.edit("**Testing Classx API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -47,52 +47,48 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             }
             
             endpoints = [
+                f"/get/get_courses?userid={uid}",
                 f"/get/get_user_courses?userid={uid}",
                 f"/get/getCourses?userid={uid}",
-                f"/get/get_courses?userid={uid}",
-                "/get/get_user_courses",
                 "/get/get_courses",
-                "/get/getCourses"
+                "/get/get_user_courses",
+                "/get/getCourses",
+                "/get/get_my_courses",
+                "/get_courses",
+                "/get_user_courses"
             ]
             
             base = api_url.rstrip('/')
             data = None
-            last_status = None
-            last_text = ""
             
             for ep in endpoints:
                 url = f"{base}{ep}"
                 try:
                     async with session.get(url, headers=headers, timeout=10) as resp:
-                        last_status = resp.status
-                        last_text = await resp.text()
-                        if resp.status == 200 and not ("<html" in last_text.lower() or "<!doctype" in last_text.lower()):
-                            res_json = json.loads(last_text)
+                        text = await resp.text()
+                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
+                            res_json = json.loads(text)
                             if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
                                 data = res_json
                                 break
-                except Exception as e:
-                    last_text = str(e)
+                except Exception:
                     pass
 
                 try:
                     async with session.post(url, headers=headers, json={"userid": uid, "user_id": uid}, timeout=10) as resp:
-                        last_status = resp.status
-                        last_text = await resp.text()
-                        if resp.status == 200 and not ("<html" in last_text.lower() or "<!doctype" in last_text.lower()):
-                            res_json = json.loads(last_text)
+                        text = await resp.text()
+                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
+                            res_json = json.loads(text)
                             if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
                                 data = res_json
                                 break
-                except Exception as e:
-                    last_text = str(e)
+                except Exception:
                     pass
             
             if not data:
                 await editable.edit(
-                    f"⚠️ **Failed to fetch courses (Last Status: `{last_status}`).**\n\n"
-                    f"Response snippet:\n`{last_text[:200]}`\n\n"
-                    f"Make sure User ID `333312` and your Auth Key are correct."
+                    "⚠️ **Failed to fetch courses (404 Error).**\n\n"
+                    "Please verify your Auth Key and User ID (`333312`)."
                 )
                 return
             
@@ -101,7 +97,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 batches = batches.get("data", []) or batches.get("courses", [])
             
             if not batches:
-                await editable.edit("**Connected successfully, but no courses found in your account.**")
+                await editable.edit("**Connected successfully, but no courses found in response.**")
                 return
             
             keyboard = []
