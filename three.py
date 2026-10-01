@@ -21,27 +21,28 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Appx Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Appx/Classx Extractor Initialized ⏳**")
     try:
         async with aiohttp.ClientSession() as session:
-            api_url = await prompt_user(bot, m, editable, "**Enter Backend API Base URL**\n*(⚠️ Note: Enter the API domain like `https://api.appx.co.in`, NOT the website link!)*:", user_id)
-            token = await prompt_user(bot, m, editable, "**Enter Bearer Token:**", user_id)
+            api_url = await prompt_user(bot, m, editable, "**Enter Base API URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
+            token = await prompt_user(bot, m, editable, "**Enter Bearer Token or Auth Key:**", user_id)
             
             await editable.edit("**Testing API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
+                "auth-key": token,
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "application/json"
             }
             
             endpoints = [
+                "/get_user_courses",
+                "/get_courses",
                 "/v1/users/get-batches",
                 "/api/v3/live-course/user-courses",
                 "/v1/course/user-courses",
-                "/api/v1/users/get-batches",
-                "/v2/users/get-batches",
-                "/get-batches"
+                "/get_course_by_id?id=281"
             ]
             
             base = api_url.rstrip('/')
@@ -56,8 +57,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                         last_status = resp.status
                         last_text = await resp.text()
                         
-                        # Check if response is HTML (meaning wrong URL / website instead of API)
-                        if last_text.strip().lower().startswith("<!doctype") or "<html" in last_text.lower():
+                        if "<html" in last_text.lower() or "<!doctype" in last_text.lower():
                             continue
                             
                         if resp.status == 200:
@@ -73,10 +73,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     continue
             
             if not data:
-                if "<html" in last_text.lower() or "<!doctype" in last_text.lower():
-                    await editable.edit("⚠️ **Incorrect URL Type Entered!**\n\nYou entered a website link instead of an API domain (it returned an HTML page). Make sure to use your provider's backend API URL (e.g., `https://api.appx.co.in`).")
-                else:
-                    await editable.edit(f"**API Error (Status `{last_status}`):**\n`{last_text[:250]}`\n\nCheck your API Base URL or Token.")
+                await editable.edit(f"**API Error (Status `{last_status}`):**\n`{last_text[:250]}`\n\nCheck your API Base URL or Token.")
                 return
             
             batches = data.get("data") or data.get("courses") or data
@@ -89,9 +86,9 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             
             keyboard = []
             for b in batches[:15]:
-                title = b.get("title") or b.get("name") or "Untitled Batch"
-                bid = b.get("_id") or b.get("id")
-                keyboard.append([InlineKeyboardButton(title[:35], callback_data=f"appx_batch_{bid}")])
+                title = b.get("title") or b.get("name") or b.get("courseName") or "Untitled Batch"
+                bid = b.get("_id") or b.get("id") or b.get("courseId")
+                keyboard.append([InlineKeyboardButton(str(title)[:35], callback_data=f"appx_batch_{bid}")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             await editable.edit(f"**Found {len(batches)} batches! Select one below to extract:**", reply_markup=reply_markup)
