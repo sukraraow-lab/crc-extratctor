@@ -248,3 +248,11 @@ def register_leech_handlers(bot: Client):
             await callback_query.answer("⏹️ Leech process stopped!")
         else:
             await callback_query.answer("No active leech task found.", show_alert=True)
+            except Exception as up_err:
+                    logging.error(f"Upload failed: {up_err}")
+                    try:
+                        await status_msg.edit(f"❌ **Upload Failed:** `{up_err}`")
+                        await asyncio.sleep(3)
+                    except Exception:
+                        pass
+                    fail += 1
