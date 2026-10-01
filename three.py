@@ -21,13 +21,13 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Appx/Classx Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx/Appx Extractor Initialized ⏳**")
     try:
         async with aiohttp.ClientSession() as session:
             api_url = await prompt_user(bot, m, editable, "**Enter Base API URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Bearer Token or Auth Key:**", user_id)
             
-            await editable.edit("**Testing API endpoints... 🔍**")
+            await editable.edit("**Testing Classx API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -36,12 +36,13 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Accept": "application/json"
             }
             
+            # Classx specific endpoints
             endpoints = [
                 "/get_user_courses",
                 "/get_courses",
+                "/users/getCourses",
                 "/v1/users/get-batches",
                 "/api/v3/live-course/user-courses",
-                "/v1/course/user-courses",
                 "/get_course_by_id?id=281"
             ]
             
