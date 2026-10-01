@@ -1,3 +1,4 @@
+# three.py
 import asyncio
 import base64
 import json
@@ -59,52 +60,3 @@ def register_appxwp_handlers(bot: Client):
         user_id = callback_query.from_user.id
         await callback_query.answer()
         asyncio.create_task(process_appxwp(client, callback_query.message, user_id))
-```[cite: 10]
-
----
-
-### 7. Deployment Configuration Files
-
-#### `requirements.txt`
-```text
-kurigram
-requests
-cloudscraper
-beautifulsoup4==4.12.2
-bs4==0.0.2
-aiohttp
-aiofiles
-yt-dlp
-pycryptodome==3.20.0
-PySocks==1.7.1
-websockets==12.0
-psutil
-colorama
-pyaes==1.6.1
-soupsieve==2.5
-python-decouple==3.8
-Flask==3.0.3
-gunicorn==22.0.0
-pyromod==3.1.6
-```[cite: 8]
-
-#### `Procfile`
-```text
-web: python main.py
-```[cite: 6]
-
-#### `railway.json`
-```json
-{
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "pip install -r requirements.txt"
-  },
-  "deploy": {
-    "startCommand": "python main.py",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
-  }
-}
-```[cite: 7]
