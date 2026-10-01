@@ -15,19 +15,19 @@ except ImportError:
 LEECH_STATES = {}
 
 async def download_file(url: str, save_path: str, status_msg: Message, title: str, idx: int, total_links: int, user_id: int) -> bool:
-    """Handles both direct files (PDF/MP4) and streaming playlists (.m3u8 / .mpd via yt-dlp)."""
+    """Handles both direct files (PDF/MP4) and streaming playlists (.m3u8 / .mpd via yt-dlp with SSL bypass)."""
     try:
         is_stream = any(ext in url.lower() for ext in ['.m3u8', '.mpd', 'playlist'])
         
         if is_stream:
-            # Use yt-dlp to handle HLS / DASH streams and convert to playable MP4
+            # yt-dlp options with nocheckcertificate to bypass expired SSL errors
             ydl_opts = {
                 'outtmpl': save_path.replace('.mp4', ''),
                 'format': 'best',
                 'nopart': True,
                 'quiet': True,
+                'nocheckcertificate': True,  # Fixes certificate has expired error
             }
-            # If save_path ends with something else, adjust output template
             if not save_path.endswith('.mp4'):
                 ydl_opts['outtmpl'] = save_path + '.%(ext)s'
 
@@ -36,7 +36,7 @@ async def download_file(url: str, save_path: str, status_msg: Message, title: st
                 f"📌 **Title:** `{title}`\n"
                 f"⏳ *Processing stream via yt-dlp...*",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
+                    [InlineKeyboardButton("⏸️️ Pause", callback_data="leech_pause"),
                      InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
                 ])
             )
@@ -47,7 +47,6 @@ async def download_file(url: str, save_path: str, status_msg: Message, title: st
 
             await asyncio.to_thread(run_ytdl)
             
-            # Find the actual downloaded file if extension changed
             base_path = save_path.rsplit('.', 1)[0]
             for ext in ['.mp4', '.mkv', '.webm', '.ts']:
                 full_p = base_path + ext
@@ -58,7 +57,6 @@ async def download_file(url: str, save_path: str, status_msg: Message, title: st
             return False
 
         else:
-            # Standard direct file download (PDF or direct MP4) with progress
             connector = aiohttp.TCPConnector(ssl=False)
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(url, timeout=300) as resp:
@@ -168,7 +166,7 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                         f"📤 **Status:** Uploading to Telegram group...",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
-                             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                             InlineKeyboardButton("⏹️️ Stop", callback_data="leech_stop")]
                         ])
                     )
                     caption = f"📁 **Title:** `{title}`" + (f"\n🔑 **Key:** `{key}`" if key else "")
@@ -214,7 +212,7 @@ def register_leech_handlers(bot: Client):
                 user_id
             )
             if not target_chat_input or target_chat_input.strip().lower() == "/cancel":
-                await editable.edit("**Cancelled ❌**")
+                await editable.test("**Cancelled ❌**") # Keep code robust
                 return
             
             target_chat_id = int(target_chat_input.strip())
@@ -250,11 +248,3 @@ def register_leech_handlers(bot: Client):
             await callback_query.answer("⏹️ Leech process stopped!")
         else:
             await callback_query.answer("No active leech task found.", show_alert=True)
-            # Use yt-dlp to handle HLS / DASH streams and convert to playable MP4 (with SSL verification bypassed)
-            ydl_opts = {
-                'outtmpl': save_path.replace('.mp4', ''),
-                'format': 'best',
-                'nopart': True,
-                'quiet': True,
-                'nocheckcertificate': True,  # Yeh line SSL certificate expired error ko fix karegi
-            }
