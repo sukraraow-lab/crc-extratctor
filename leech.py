@@ -15,31 +15,32 @@ except ImportError:
 LEECH_STATES = {}
 
 async def download_file(url: str, save_path: str, status_msg: Message, title: str, idx: int, total_links: int, user_id: int) -> bool:
-    """Handles both direct files (PDF/MP4) and streaming playlists (.m3u8 / .mpd via yt-dlp with SSL bypass)."""
     try:
         is_stream = any(ext in url.lower() for ext in ['.m3u8', '.mpd', 'playlist'])
         
         if is_stream:
-            # yt-dlp options with nocheckcertificate to bypass expired SSL errors
             ydl_opts = {
                 'outtmpl': save_path.replace('.mp4', ''),
                 'format': 'best',
                 'nopart': True,
                 'quiet': True,
-                'nocheckcertificate': True,  # Fixes certificate has expired error
+                'nocheckcertificate': True,
             }
             if not save_path.endswith('.mp4'):
                 ydl_opts['outtmpl'] = save_path + '.%(ext)s'
 
-            await status_msg.edit(
-                f"📥 **Downloading Stream (HLS/DASH):** `{idx}/{total_links}`\n"
-                f"📌 **Title:** `{title}`\n"
-                f"⏳ *Processing stream via yt-dlp...*",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⏸️️ Pause", callback_data="leech_pause"),
-                     InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
-                ])
-            )
+            try:
+                await status_msg.edit(
+                    f"📥 **Downloading Stream:** `{idx}/{total_links}`\n"
+                    f"📌 **Title:** `{title}`\n"
+                    f"⏳ *Processing via yt-dlp...*",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
+                         InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                    ])
+                )
+            except Exception:
+                pass
 
             def run_ytdl():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -77,22 +78,21 @@ async def download_file(url: str, save_path: str, status_msg: Message, title: st
                                     mb_total = total_size / (1024 * 1024)
                                     try:
                                         is_paused = LEECH_STATES.get(user_id, {}).get("paused", False)
-                                        pause_btn_text = "▶️ Resume" if is_paused else "⏸ Pause"
-                                        pause_callback = "leech_resume" if is_paused else "leech_pause"
-
+                                        p_text = "▶️ Resume" if is_paused else "⏸ Pause"
+                                        p_cb = "leech_resume" if is_paused else "leech_pause"
                                         await status_msg.edit(
                                             f"📤 **Leeching:** `{idx}/{total_links}`\n"
                                             f"📌 **Title:** `{title}`\n"
                                             f"📊 **Downloading:** [{bar}] `{percent:.1f}%`\n"
                                             f"📦 `{mb_done:.1f} MB / {mb_total:.1f} MB`",
                                             reply_markup=InlineKeyboardMarkup([
-                                                [InlineKeyboardButton(pause_btn_text, callback_data=pause_callback),
-                                                 InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                                                [InlineKeyboardButton(p_text, callback_data=p_cb),
+                                                 InlineKeyboardButton("⏹ Stop", callback_data="leech_stop")]
                                             ])
                                         )
                                     except Exception:
                                         pass
-                        return True
+                            return True
     except Exception as e:
         logging.error(f"Download failed for {url}: {e}")
     return False
@@ -101,7 +101,7 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
     LEECH_STATES[user_id] = {"paused": False, "stopped": False}
     
     status_msg = await message.reply_text(
-        "📥 **Reading `.txt` file and starting leeching...**",
+        "📥 **Reading `.txt` file and starting sequential leeching...**",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
              InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
@@ -135,7 +135,8 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                 break
 
             line = line.strip()
-            if not line or ":" not in line: continue
+            if not line or ":" not in line: 
+                continue
             
             parts = line.split(":", 1)
             title, url_part = parts[0].strip(), parts[1].strip()
@@ -145,7 +146,8 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                 url_part, key = url_part.split("*", 1)
                 
             url = url_part.strip()
-            if not url.startswith("http"): continue
+            if not url.startswith("http"): 
+                continue
 
             is_video = any(ext in url.lower() for ext in ['.mp4', '.m3u8', '.mpd', 'video', 'playlist'])
             ext = ".mp4" if is_video else ".pdf"
@@ -153,8 +155,10 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
             local_filename = f"{safe_title}{ext}"
 
             downloaded_ok = await download_file(url, local_filename, status_msg, title, idx, total_links, user_id)
+            
             if LEECH_STATES.get(user_id, {}).get("stopped"):
-                if os.path.exists(local_filename): os.remove(local_filename)
+                if os.path.exists(local_filename): 
+                    os.remove(local_filename)
                 await status_msg.edit("❌ **Leech Task Stopped Successfully!**", reply_markup=None)
                 break
 
@@ -166,7 +170,7 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                         f"📤 **Status:** Uploading to Telegram group...",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
-                             InlineKeyboardButton("⏹️️ Stop", callback_data="leech_stop")]
+                             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
                         ])
                     )
                     caption = f"📁 **Title:** `{title}`" + (f"\n🔑 **Key:** `{key}`" if key else "")
@@ -179,9 +183,11 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                     logging.error(f"Upload failed: {up_err}")
                     fail += 1
                 finally:
-                    if os.path.exists(local_filename): os.remove(local_filename)
+                    if os.path.exists(local_filename): 
+                        os.remove(local_filename)
             else:
                 fail += 1
+            
             await asyncio.sleep(2)
 
         if not LEECH_STATES.get(user_id, {}).get("stopped"):
@@ -212,7 +218,7 @@ def register_leech_handlers(bot: Client):
                 user_id
             )
             if not target_chat_input or target_chat_input.strip().lower() == "/cancel":
-                await editable.test("**Cancelled ❌**") # Keep code robust
+                await editable.edit("**Cancelled ❌**") # Fixed .test to .edit here
                 return
             
             target_chat_id = int(target_chat_input.strip())
@@ -248,11 +254,3 @@ def register_leech_handlers(bot: Client):
             await callback_query.answer("⏹️ Leech process stopped!")
         else:
             await callback_query.answer("No active leech task found.", show_alert=True)
-            except Exception as up_err:
-                    logging.error(f"Upload failed: {up_err}")
-                    try:
-                        await status_msg.edit(f"❌ **Upload Failed:** `{up_err}`")
-                        await asyncio.sleep(3)
-                    except Exception:
-                        pass
-                    fail += 1
