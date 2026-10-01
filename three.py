@@ -28,54 +28,40 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
     editable = await m.reply_text("**Classx Extractor Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
-        token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
+        token = await prompt_user(bot, m, editable, "**Enter Auth Key (Token):**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Authenticating & fetching course content... 🔍**")
+        await editable.edit("**Authenticating with Classx API... 🔍**")
         
         token = token.strip().strip('"').strip("'")
         
-        headers_options = [
-            {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
-            {"Authorization": f"Bearer {token}", "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
-            {"Authorization": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"}
-        ]
+        headers = {
+            "auth-key": token,
+            "Authorization": f"Bearer {token}",
+            "User-ID": uid,
+            "client-service": "Appx",
+            "source": "website",
+            "Device-Type": "WEB",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
         
         base = api_url.rstrip('/')
-        endpoints = [
-            f"/get/getposts?course_id={course_id}&start=-1",
-            f"/get/course_by_id?id={course_id}",
-            f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1"
-        ]
+        url = f"{base}/get/getposts?course_id={course_id}&start=-1"
         
-        data = None
-        last_status = 401
-        
-        # Safely managed connector to prevent file descriptor -1 errors
         connector = aiohttp.TCPConnector(force_close=True, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            for headers in headers_options:
-                headers.update({"Accept": "application/json", "Content-Type": "application/json"})
-                for ep in endpoints:
-                    url = f"{base}{ep}"
-                    try:
-                        async with session.get(url, headers=headers, timeout=10) as resp:
-                            last_status = resp.status
-                            text = await resp.text()
-                            if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
-                                data = json.loads(text)
-                                break
-                    except Exception:
-                        pass
-                if data:
-                    break
-        
-        if not data:
-            await editable.edit(f"⚠️ **Authentication Failed (Status: `{last_status}`).**\n\nStatus `401` means your **Auth Key/Token** or **User ID** is incorrect or expired.")
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                status = resp.status
+                resp_text = await resp.text()
+
+        if status != 200:
+            await editable.edit(f"⚠️️ **API Request Failed (Status: `{status}`).**\n\nServer Response:\n`{resp_text[:300]}`")
             return
         
-        await editable.edit(f"✅ **Successfully authenticated and fetched course ID `{course_id}`!**\n\nCourse data loaded successfully. Ready for full extraction.")
+        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nReady for full extraction.")
         
     except ProcessCancelledException:
         pass
