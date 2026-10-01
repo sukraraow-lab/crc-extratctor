@@ -25,25 +25,25 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx Smart Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Ultimate Extractor Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
         token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Smart-testing multiple authentication methods... 🔍**")
+        await editable.edit("**Smart-testing all Classx header variations... 🔍**")
         
         token = token.strip().strip('"').strip("'")
         base = api_url.rstrip('/')
         
-        # Smart combinations to bypass 401 Unauthorized
+        # Expanded variations for Classx / Appx backends
         header_variants = [
+            {"auth-key": token, "User-ID": uid, "client-service": "classx", "source": "website", "Device-Type": "WEB"},
             {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB"},
-            {"auth-key": token, "User-ID": uid},
-            {"Authorization": f"Bearer {token}", "auth-key": token, "User-ID": uid, "client-service": "Appx"},
-            {"Authorization": token, "auth-key": token, "User-ID": uid},
-            {"token": token, "User-ID": uid, "client-service": "Appx"}
+            {"auth-key": token, "User-ID": uid, "client-service": "classx"},
+            {"Authorization": f"Bearer {token}", "auth-key": token, "User-ID": uid, "client-service": "classx"},
+            {"Authorization": token, "auth-key": token, "User-ID": uid, "client-service": "Appx"}
         ]
         
         endpoints = [
@@ -69,7 +69,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     try:
                         async with session.get(url, headers=base_headers, timeout=8) as resp:
                             last_resp_text = await resp.text()
-                            if resp.status == 200 and not ("<html" in last_resp_text.lower() or "<!doctype" in last_text_lower if 'last_text_lower' in locals() else False):
+                            if resp.status == 200 and not ("<html" in last_resp_text.lower() or "<!doctype" in last_resp_text.lower()):
                                 try:
                                     res_json = json.loads(last_resp_text)
                                     if isinstance(res_json, dict) and res_json.get("status") == 401:
@@ -85,13 +85,13 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
         
         if not data:
             await editable.edit(
-                f"⚠️ **Authentication Failed across all smart variations.**\n\n"
+                f"⚠️ **Still getting 401 Unauthorized.**\n\n"
                 f"Last Server Response:\n`{last_resp_text[:300]}`\n\n"
-                f"💡 **Tip:** Make sure you copied the fresh `auth-key` and correct `User-ID` from your browser's Network tab."
+                f"💡 **Important Check:** Make sure you copy the exact value from the `auth-key` header in your browser's Network tab, not just a random cookie or login password."
             )
             return
         
-        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData extracted. Ready for full pipeline.")
+        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData extracted. Ready for full extraction.")
         
     except ProcessCancelledException:
         pass
