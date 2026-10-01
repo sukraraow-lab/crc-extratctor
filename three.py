@@ -25,43 +25,73 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Smart Extractor Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
-        token = await prompt_user(bot, m, editable, "**Enter Auth Key (Token):**", user_id)
+        token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Authenticating with Classx API... 🔍**")
+        await editable.edit("**Smart-testing multiple authentication methods... 🔍**")
         
         token = token.strip().strip('"').strip("'")
-        
-        headers = {
-            "auth-key": token,
-            "Authorization": f"Bearer {token}",
-            "User-ID": uid,
-            "client-service": "Appx",
-            "source": "website",
-            "Device-Type": "WEB",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        
         base = api_url.rstrip('/')
-        url = f"{base}/get/getposts?course_id={course_id}&start=-1"
+        
+        # Smart combinations to bypass 401 Unauthorized
+        header_variants = [
+            {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB"},
+            {"auth-key": token, "User-ID": uid},
+            {"Authorization": f"Bearer {token}", "auth-key": token, "User-ID": uid, "client-service": "Appx"},
+            {"Authorization": token, "auth-key": token, "User-ID": uid},
+            {"token": token, "User-ID": uid, "client-service": "Appx"}
+        ]
+        
+        endpoints = [
+            f"/get/getposts?course_id={course_id}&start=-1",
+            f"/get/course_by_id?id={course_id}",
+            f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1"
+        ]
+        
+        data = None
+        last_resp_text = ""
         
         connector = aiohttp.TCPConnector(force_close=True, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, headers=headers, timeout=10) as resp:
-                status = resp.status
-                resp_text = await resp.text()
-
-        if status != 200:
-            await editable.edit(f"⚠️️ **API Request Failed (Status: `{status}`).**\n\nServer Response:\n`{resp_text[:300]}`")
+            for base_headers in header_variants:
+                base_headers.update({
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                })
+                
+                for ep in endpoints:
+                    url = f"{base}{ep}"
+                    try:
+                        async with session.get(url, headers=base_headers, timeout=8) as resp:
+                            last_resp_text = await resp.text()
+                            if resp.status == 200 and not ("<html" in last_resp_text.lower() or "<!doctype" in last_text_lower if 'last_text_lower' in locals() else False):
+                                try:
+                                    res_json = json.loads(last_resp_text)
+                                    if isinstance(res_json, dict) and res_json.get("status") == 401:
+                                        continue
+                                    data = res_json
+                                    break
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                if data:
+                    break
+        
+        if not data:
+            await editable.edit(
+                f"⚠️ **Authentication Failed across all smart variations.**\n\n"
+                f"Last Server Response:\n`{last_resp_text[:300]}`\n\n"
+                f"💡 **Tip:** Make sure you copied the fresh `auth-key` and correct `User-ID` from your browser's Network tab."
+            )
             return
         
-        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nReady for full extraction.")
+        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData extracted. Ready for full pipeline.")
         
     except ProcessCancelledException:
         pass
