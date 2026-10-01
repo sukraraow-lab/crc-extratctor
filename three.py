@@ -30,8 +30,8 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
         async with aiohttp.ClientSession() as session:
             api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
-            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)[cite: 22]
-            course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281` from your browser URL):**", user_id)[cite: 22]
+            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
+            course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281` from your browser URL):**", user_id)
             
             await editable.edit("**Fetching course content using Classx endpoints... 🔍**")
             
