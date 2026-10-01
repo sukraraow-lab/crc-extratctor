@@ -21,13 +21,13 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx/Appx Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx / Appx Extractor Initialized ⏳**")
     try:
         async with aiohttp.ClientSession() as session:
-            api_url = await prompt_user(bot, m, editable, "**Enter Base API URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
+            api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Bearer Token or Auth Key:**", user_id)
             
-            await editable.edit("**Testing Classx API endpoints... 🔍**")
+            await editable.edit("**Testing Classx/Appx API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -36,14 +36,14 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Accept": "application/json"
             }
             
-            # Classx specific endpoints
+            # Updated Classx & Appx course endpoints
             endpoints = [
-                "/get_user_courses",
                 "/get_courses",
+                "/get_user_courses",
                 "/users/getCourses",
                 "/v1/users/get-batches",
                 "/api/v3/live-course/user-courses",
-                "/get_course_by_id?id=281"
+                "/v1/course/user-courses"
             ]
             
             base = api_url.rstrip('/')
@@ -58,6 +58,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                         last_status = resp.status
                         last_text = await resp.text()
                         
+                        # Skip if response is HTML page (404/error page)
                         if "<html" in last_text.lower() or "<!doctype" in last_text.lower():
                             continue
                             
@@ -74,25 +75,33 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     continue
             
             if not data:
-                await editable.edit(f"**API Error (Status `{last_status}`):**\n`{last_text[:250]}`\n\nCheck your API Base URL or Token.")
+                await editable.edit(
+                    f"⚠️ **Could not fetch courses automatically (Last Status: `{last_status}`).**\n\n"
+                    f"Make sure your Base URL is correct (e.g., `https://sachinacademyapi.classx.co.in`) and your token/auth key is valid."
+                )
                 return
             
             batches = data.get("data") or data.get("courses") or data
             if isinstance(batches, dict):
-                batches = batches.get("data", [])
+                batches = batches.get("data", []) or batches.get("courses", [])
             
             if not batches:
-                await editable.edit("**Connected successfully, but no batches found in response.**")
+                await editable.edit("**Connected successfully, but no courses/batches found in the account response.**")
                 return
             
             keyboard = []
             for b in batches[:15]:
-                title = b.get("title") or b.get("name") or b.get("courseName") or "Untitled Batch"
+                title = b.get("title") or b.get("name") or b.get("courseName") or "Untitled Course"
                 bid = b.get("_id") or b.get("id") or b.get("courseId")
-                keyboard.append([InlineKeyboardButton(str(title)[:35], callback_data=f"appx_batch_{bid}")])
+                if bid:
+                    keyboard.append([InlineKeyboardButton(str(title)[:35], callback_data=f"appx_batch_{bid}")])
             
+            if not keyboard:
+                await editable.edit("**Courses found, but could not parse course IDs.**")
+                return
+                
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await editable.edit(f"**Found {len(batches)} batches! Select one below to extract:**", reply_markup=reply_markup)
+            await editable.edit(f"**Found {len(batches)} courses! Select one below to extract:**", reply_markup=reply_markup)
             
     except ProcessCancelledException:
         pass
@@ -111,4 +120,4 @@ def register_appxwp_handlers(bot: Client):
     async def appx_batch_callback(client: Client, callback_query):
         batch_id = callback_query.data.split("_")[2]
         await callback_query.answer("Extracting batch content...")
-        await callback_query.message.edit_text(f"**Extracting contents for Batch ID:** `{batch_id}`...\n\nGeneration of structured `.txt` links in progress.")
+        await callback_query.message.edit_text(f"**Extracting contents for Course/Batch ID:** `{batch_id}`...\n\nGeneration of structured `.txt` download links in progress.")
