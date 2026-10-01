@@ -398,17 +398,78 @@ def resolve_url(item: Dict) -> str:
     return ""
 
 
+async def appx_get_with_auth(
+    session: aiohttp.ClientSession,
+    url: str,
+    token: str,
+    params: dict = None,
+) -> Optional[Any]:
+    """
+    Try both Authorization and APIKEY header — classx JWT apps use APIKEY.
+    Logs full response for debugging.
+    """
+    base = {
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.19 (dart:io)",
+    }
+    for auth_key in ["Authorization", "APIKEY", "token", "authtoken"]:
+        h = {**base, auth_key: token}
+        async with SEMAPHORE:
+            try:
+                async with session.get(
+                    url, headers=h, params=params,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as r:
+                    text = await r.text()
+                    if text.strip().startswith(("<!DOCTYPE", "<html", "<!doctype")):
+                        logging.debug(f"appx_get HTML {r.status} auth={auth_key} {url}")
+                        continue
+                    parsed = _try_parse_json(text)
+                    if parsed is None:
+                        logging.debug(f"appx_get non-json auth={auth_key} {url}: {text[:100]}")
+                        continue
+                    # log every response so we can debug
+                    data = parsed.get("data") if isinstance(parsed, dict) else None
+                    logging.info(
+                        f"appx_get auth={auth_key} {url.split(url.split('/')[2])[1]} "
+                        f"status={parsed.get('status') if isinstance(parsed, dict) else '?'} "
+                        f"data_len={len(data) if isinstance(data, list) else type(data).__name__}"
+                    )
+                    if isinstance(parsed, dict) and parsed.get("data"):
+                        return parsed
+                    # return anyway so caller can inspect
+                    if parsed:
+                        logging.warning(f"appx_get empty data auth={auth_key}: {json.dumps(parsed)[:300]}")
+            except Exception as e:
+                logging.error(f"appx_get_with_auth {auth_key} {url}: {e}")
+    return None
+
+
 async def get_subjects(
     session: aiohttp.ClientSession, api: str, token: str
 ) -> List[Dict]:
-    for endpoint in [
+    endpoints = [
         f"{api}/api/v1/getsubjectforcourse",
         f"{api}/post/getsubjects",
         f"{api}/api/v2/getsubjectforcourse",
-    ]:
-        res = await appx_get(session, endpoint, token=token)
-        if res and res.get("data"):
-            return res["data"]
+        f"{api}/api/v1/subjects",
+        f"{api}/api/subjects",
+    ]
+    for endpoint in endpoints:
+        res = await appx_get_with_auth(session, endpoint, token)
+        if res:
+            data = res.get("data", [])
+            if isinstance(data, list) and data:
+                logging.info(f"subjects found at {endpoint}: {len(data)} items")
+                return data
+            # some apps wrap in different keys
+            for key in ["subjects", "courses", "result", "items"]:
+                if res.get(key) and isinstance(res[key], list):
+                    return res[key]
+    logging.warning(f"get_subjects: no subjects found on {api}")
     return []
 
 
@@ -418,17 +479,21 @@ async def get_folders(
     token: str,
     subject_id: str,
 ) -> List[Dict]:
-    for endpoint in [
+    endpoints = [
         f"{api}/api/v1/getfoldersbysubject",
         f"{api}/post/getfolders",
         f"{api}/api/v2/getfoldersbysubject",
-    ]:
-        res = await appx_get(
-            session, endpoint, token=token,
+        f"{api}/api/v1/folders",
+    ]
+    for endpoint in endpoints:
+        res = await appx_get_with_auth(
+            session, endpoint, token,
             params={"subject_id": subject_id}
         )
-        if res and res.get("data"):
-            return res["data"]
+        if res:
+            data = res.get("data", [])
+            if isinstance(data, list) and data:
+                return data
     return []
 
 
@@ -438,12 +503,9 @@ async def get_videos(
     token: str,
     folder_id: str,
     subject_id: str,
-    folder_wise: str = "0",
 ) -> List[Dict]:
-    """Try all known video fetch endpoints and param combos."""
+    """Try all known video/content fetch endpoint + param combos."""
     combos = [
-        (f"{api}/api/v1/getvideosbyfolder",
-         {"folder_wise_course": folder_wise, "folder_id": folder_id, "subject_id": subject_id}),
         (f"{api}/api/v1/getvideosbyfolder",
          {"folder_wise_course": "0", "folder_id": folder_id, "subject_id": subject_id}),
         (f"{api}/api/v1/getvideosbyfolder",
@@ -452,11 +514,15 @@ async def get_videos(
          {"folder_id": folder_id, "subject_id": subject_id}),
         (f"{api}/api/v2/getvideosbyfolder",
          {"folder_wise_course": "0", "folder_id": folder_id, "subject_id": subject_id}),
+        (f"{api}/api/v1/videos",
+         {"folder_id": folder_id, "subject_id": subject_id}),
     ]
     for endpoint, params in combos:
-        res = await appx_get(session, endpoint, token=token, params=params)
-        if res and res.get("data"):
-            return res["data"]
+        res = await appx_get_with_auth(session, endpoint, token, params=params)
+        if res:
+            data = res.get("data", [])
+            if isinstance(data, list) and data:
+                return data
     return []
 
 
