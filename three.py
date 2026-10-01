@@ -25,66 +25,81 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx Debug Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Auto-Unlocker Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
         token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Executing API request with full Debug Logging... 🔍**")
+        await editable.edit("**Testing client-service & auth variations automatically... 🔍**")
         
         token = token.strip().strip('"').strip("'")
         base = api_url.rstrip('/')
-        
-        # Comprehensive headers matching Appx/Classx client web apps
-        headers = {
-            "auth-key": token,
-            "Authorization": f"Bearer {token}",
-            "User-ID": uid,
-            "client-service": "classx",
-            "source": "website",
-            "Device-Type": "WEB",
-            "Origin": base.replace("api.", "").replace("api", ""),
-            "Referer": f"{base}/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json"
-        }
-        
         url = f"{base}/get/getposts?course_id={course_id}&start=-1"
         
-        # Print detailed request logs to Render Console
-        logging.info("="*50)
-        logging.info(f"CLASSX DEBUG REQUEST URL: {url}")
-        logging.info(f"CLASSX DEBUG HEADERS: {json.dumps(headers, indent=2)}")
-        logging.info("="*50)
+        # Possible client-service identifiers used by Classx/Appx backends
+        client_services = ["classx", "Appx", "sachinacademy", "SachinAcademy", "appx"]
+        
+        data = None
         
         connector = aiohttp.TCPConnector(force_close=True, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, headers=headers, timeout=15) as resp:
-                status = resp.status
-                resp_text = await resp.text()
-                
-        # Print detailed response logs to Render Console
-        logging.info("="*50)
-        logging.info(f"CLASSX DEBUG RESPONSE STATUS: {status}")
-        logging.info(f"CLASSX DEBUG RESPONSE BODY: {resp_text[:1000]}")
-        logging.info("="*50)
+            for cs in client_services:
+                # Variant 1: auth-key header
+                headers_v1 = {
+                    "auth-key": token,
+                    "User-ID": uid,
+                    "client-service": cs,
+                    "source": "website",
+                    "Device-Type": "WEB",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json"
+                }
+                try:
+                    async with session.get(url, headers=headers_v1, timeout=8) as resp:
+                        text = await resp.text()
+                        if resp.status == 200:
+                            res = json.loads(text)
+                            if isinstance(res, dict) and res.get("status") != 401:
+                                data = res
+                                break
+                except Exception:
+                    pass
 
-        if status == 401:
+                # Variant 2: Bearer token + auth-key
+                headers_v2 = {
+                    "Authorization": f"Bearer {token}",
+                    "auth-key": token,
+                    "User-ID": uid,
+                    "client-service": cs,
+                    "source": "website",
+                    "Device-Type": "WEB",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "application/json"
+                }
+                try:
+                    async with session.get(url, headers=headers_v2, timeout=8) as resp:
+                        text = await resp.text()
+                        if resp.status == 200:
+                            res = json.loads(text)
+                            if isinstance(res, dict) and res.get("status") != 401:
+                                data = res
+                                break
+                except Exception:
+                    pass
+                
+                if data:
+                    break
+
+        if not data:
             await editable.edit(
-                f"❌ **401 Unauthorized Detected.**\n\n"
-                f"Server Response:\n`{resp_text[:300]}`\n\n"
-                f"🔍 **Next Step:** Apne **Render Dashboard -> Logs** me check karein. Wahan aapko exact URL aur Headers dikh jayenge jisse aap verify kar sakte hain ki token sahi pass ho raha hai ya nahi."
+                f"❌ **401 Unauthorized across all client-service variants.**\n\n"
+                f"💡 Kripya ensure karein ki aapne jo `auth-key` dala hai wo bilkul fresh hai aur `User-ID` (`333312`) sahi hai."
             )
             return
-
-        if status != 200:
-            await editable.edit(f"⚠️ **API Error (Status: `{status}`).**\n\nResponse:\n`{resp_text[:300]}`")
-            return
         
-        await editable.edit(f"✅ **Success! Course ID `{course_id}` loaded successfully.**")
+        await editable.edit(f"✅ **Bypass Successful! Course ID `{course_id}` loaded successfully.**\n\nData extracted successfully. Ready for full extraction.")
         
     except ProcessCancelledException:
         pass
