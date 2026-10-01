@@ -26,7 +26,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             api_url = await prompt_user(bot, m, editable, "**Enter App Base API URL (e.g., https://api.appx.co.in):**", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Bearer Token:**", user_id)
             
-            await editable.edit("**Fetching your batches... 🔍**")
+            await editable.edit("**Fetching your batches across API routes... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -34,17 +34,33 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Accept": "application/json"
             }
             
-            async with session.get(f"{api_url.rstrip('/')}/v1/users/get-batches", headers=headers, timeout=15) as resp:
-                if resp.status != 200:
-                    await editable.edit(f"**Failed to fetch batches. API returned status: `{resp.status}`**")
-                    return
-                data = await resp.json()
+            # List of possible Appx/Course API endpoints to test automatically
+            endpoints = [
+                "/v1/users/get-batches",
+                "/api/v3/live-course/user-courses",
+                "/v1/course/user-courses",
+                "/api/v1/users/get-batches",
+                "/v2/users/get-batches"
+            ]
             
-            batches = data.get("data", [])
-            if not batches:
-                await editable.edit("**No batches found for this account.**")
+            data = None
+            base = api_url.rstrip('/')
+            for ep in endpoints:
+                try:
+                    async with session.get(f"{base}{ep}", headers=headers, timeout=10) as resp:
+                        if resp.status == 200:
+                            res_json = await resp.json()
+                            if res_json.get("data"):
+                                data = res_json
+                                break
+                except Exception:
+                    continue
+            
+            if not data or not data.get("data"):
+                await editable.edit("**Failed to fetch batches. All standard Appx endpoints returned 404 or empty data. Check your API Base URL.**")
                 return
             
+            batches = data.get("data", [])
             keyboard = []
             for b in batches[:15]:
                 title = b.get("title") or b.get("name") or "Untitled Batch"
