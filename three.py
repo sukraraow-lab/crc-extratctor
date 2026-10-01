@@ -253,74 +253,107 @@ async def appx_login(
     password: str,
 ) -> Optional[str]:
     """
-    Exhaustive login: endpoints × payload fields × header variants.
-    Logs every attempt so render logs show exactly what the server returns.
+    Smart login — tries endpoints one at a time with delay.
+    Stops immediately on 429 and waits. Stops on first success.
+    Logs full server response for debugging.
     """
 
+    # payload field variants — try mob first (most common in classx)
     payload_variants = [
-        {"mob": mobile,      "password": password},
-        {"email": mobile,    "password": password},
-        {"username": mobile, "password": password},
-        {"mobile": mobile,   "password": password},
-        {"phone": mobile,    "password": password},
+        {"mob": mobile,   "password": password},
+        {"email": mobile, "password": password},
     ]
 
+    # endpoints ordered by likelihood — /post/userlogin is classic appx
+    # /api/v1/login is what classx apps actually use
     endpoints = [
         f"{api}/post/userlogin",
+        f"{api}/api/v1/login",
         f"{api}/api/v1/userlogin",
         f"{api}/api/userlogin",
-        f"{api}/user/login",
-        f"{api}/api/v2/userlogin",
-        f"{api}/api/v1/login",
         f"{api}/login",
     ]
 
-    for h_variant in APPX_HEADER_VARIANTS:
-        for endpoint in endpoints:
-            for payload in payload_variants:
-                try:
-                    res = await appx_post(
-                        session, endpoint, payload,
-                        headers_override=h_variant,
-                    )
-                    if not res:
-                        continue
+    # best header variant first — Dart UA is what the real app sends
+    best_headers = {
+        "Client-Service": "Appx",
+        "Auth-Key": "appxapi",
+        "source": "app",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "Dart/2.19 (dart:io)",
+    }
 
-                    # non-JSON response — log full body for debugging
-                    if "_raw" in res:
-                        raw  = res["_raw"][:300].strip()
-                        http = res.get("_http", "?")
-                        logging.warning(
-                            f"appx login HTTP={http} {endpoint} "
-                            f"fields={list(payload.keys())} "
-                            f"ua={h_variant.get('User-Agent','')[:20]} "
-                            f"body={raw}"
-                        )
-                        # if 403 — IP blocked, no point trying more payloads on this endpoint
-                        if http == 403:
-                            break
-                        continue
+    rate_limited = False
 
-                    token = _extract_token_from_res(res)
-                    if token:
-                        logging.info(
-                            f"appx login OK: {endpoint} "
-                            f"fields={list(payload.keys())} "
-                            f"headers=source:{h_variant.get('source')} "
-                            f"auth:{h_variant.get('Auth-Key')}"
-                        )
-                        return token
+    for endpoint in endpoints:
+        for payload in payload_variants:
+            try:
+                # wait between requests — prevent 429
+                await asyncio.sleep(1.5)
 
-                    logging.info(
-                        f"appx login miss: {endpoint} "
-                        f"fields={list(payload.keys())} "
-                        f"status={res.get('status')} "
-                        f"keys={list(res.keys())}"
-                    )
+                res = await appx_post(
+                    session, endpoint, payload,
+                    headers_override=best_headers,
+                )
 
-                except Exception as e:
-                    logging.error(f"login {endpoint}: {e}")
+                if not res:
+                    logging.info(f"appx login no-response: {endpoint}")
                     continue
+
+                # non-JSON (HTML error page)
+                if "_raw" in res:
+                    http = res.get("_http", 0)
+                    raw  = res["_raw"][:200].strip().replace("\n", " ")
+                    logging.warning(
+                        f"appx login HTTP={http} {endpoint} "
+                        f"fields={list(payload.keys())}: {raw[:100]}"
+                    )
+                    if http == 429:
+                        # rate limited — wait longer and try next endpoint
+                        logging.warning("appx: 429 rate limit — waiting 10s")
+                        await asyncio.sleep(10)
+                        rate_limited = True
+                        break  # skip remaining payloads on this endpoint
+                    if http in (403, 404):
+                        break  # skip remaining payloads on this endpoint
+                    continue
+
+                # got JSON — check for token
+                token = _extract_token_from_res(res)
+                if token:
+                    logging.info(
+                        f"appx login OK: {endpoint} "
+                        f"fields={list(payload.keys())} "
+                        f"status={res.get('status')}"
+                    )
+                    return token
+
+                # JSON but no token — log full response
+                logging.warning(
+                    f"appx login JSON-miss: {endpoint} "
+                    f"fields={list(payload.keys())} "
+                    f"response={json.dumps(res)[:300]}"
+                )
+
+            except Exception as e:
+                logging.error(f"login {endpoint} {list(payload.keys())}: {e}")
+                continue
+
+    # if we were rate-limited, retry once with longer wait using just best endpoint
+    if rate_limited:
+        logging.warning("appx: retrying after rate limit cooldown (15s)...")
+        await asyncio.sleep(15)
+        endpoint = f"{api}/post/userlogin"
+        payload  = {"mob": mobile, "password": password}
+        try:
+            res = await appx_post(session, endpoint, payload, headers_override=best_headers)
+            if res and "_raw" not in res:
+                token = _extract_token_from_res(res)
+                if token:
+                    return token
+                logging.warning(f"appx retry response: {json.dumps(res)[:300]}")
+        except Exception as e:
+            logging.error(f"appx retry: {e}")
 
     return None
 
