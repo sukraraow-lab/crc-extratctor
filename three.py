@@ -1,15 +1,15 @@
-### 2. Updated `three.py` (Fixes Classx 404 Errors with POST/GET Support)
-Replace your `three.py` with this version, which supports Classx's exact `POST` and `GET` routes and custom headers:
-
-```python
-# three.py
 import asyncio
 import json
 import logging
 import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-from helpers import ask_user
+
+try:
+    from helpers import ask_user
+except ImportError:
+    async def ask_user(*args, **kwargs):
+        return None
 
 SEMAPHORE = asyncio.Semaphore(15)
 
@@ -46,7 +46,6 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Content-Type": "application/json"
             }
             
-            # Endpoints to test via GET and POST
             endpoints = [
                 "/get_user_course",
                 "/get_user_courses",
@@ -60,7 +59,6 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             
             for ep in endpoints:
                 url = f"{base}{ep}"
-                # Try GET request
                 try:
                     async with session.get(url, headers=headers, timeout=10) as resp:
                         text = await resp.text()
@@ -72,7 +70,6 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 except Exception:
                     pass
 
-                # Try POST request
                 try:
                     async with session.post(url, headers=headers, json={"user_id": user_id_val}, timeout=10) as resp:
                         text = await resp.text()
