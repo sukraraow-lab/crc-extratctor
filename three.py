@@ -1,5 +1,6 @@
 # three.py
 import asyncio
+import json
 import logging
 import aiohttp
 from pyrogram import Client, filters
@@ -26,7 +27,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             api_url = await prompt_user(bot, m, editable, "**Enter App Base API URL (e.g., https://api.appx.co.in):**", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Bearer Token:**", user_id)
             
-            await editable.edit("**Fetching your batches across API routes... 🔍**")
+            await editable.edit("**Testing API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -34,33 +35,51 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Accept": "application/json"
             }
             
-            # List of possible Appx/Course API endpoints to test automatically
             endpoints = [
                 "/v1/users/get-batches",
                 "/api/v3/live-course/user-courses",
                 "/v1/course/user-courses",
                 "/api/v1/users/get-batches",
-                "/v2/users/get-batches"
+                "/v2/users/get-batches",
+                "/get-batches"
             ]
             
-            data = None
             base = api_url.rstrip('/')
+            last_status = None
+            last_text = ""
+            data = None
+            
             for ep in endpoints:
                 try:
-                    async with session.get(f"{base}{ep}", headers=headers, timeout=10) as resp:
+                    url = f"{base}{ep}"
+                    async with session.get(url, headers=headers, timeout=10) as resp:
+                        last_status = resp.status
+                        last_text = await resp.text()
                         if resp.status == 200:
-                            res_json = await resp.json()
-                            if res_json.get("data"):
-                                data = res_json
-                                break
-                except Exception:
+                            try:
+                                res_json = json.loads(last_text) if isinstance(last_text, str) else last_text
+                                if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
+                                    data = res_json
+                                    break
+                            except Exception:
+                                pass
+                except Exception as e:
+                    last_text = str(e)
                     continue
             
-            if not data or not data.get("data"):
-                await editable.edit("**Failed to fetch batches. All standard Appx endpoints returned 404 or empty data. Check your API Base URL.**")
+            if not data:
+                debug_msg = f"**API Error (Last Status: `{last_status}`):**\n`{last_text[:300]}`\n\nCheck your API Base URL or Token."
+                await editable.edit(debug_msg)
                 return
             
-            batches = data.get("data", [])
+            batches = data.get("data") or data.get("courses") or data
+            if isinstance(batches, dict):
+                batches = batches.get("data", [])
+            
+            if not batches:
+                await editable.edit("**Connected successfully, but no batches found in response.**")
+                return
+            
             keyboard = []
             for b in batches[:15]:
                 title = b.get("title") or b.get("name") or "Untitled Batch"
