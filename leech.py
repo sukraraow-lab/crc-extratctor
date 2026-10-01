@@ -250,3 +250,11 @@ def register_leech_handlers(bot: Client):
             await callback_query.answer("⏹️ Leech process stopped!")
         else:
             await callback_query.answer("No active leech task found.", show_alert=True)
+            # Use yt-dlp to handle HLS / DASH streams and convert to playable MP4 (with SSL verification bypassed)
+            ydl_opts = {
+                'outtmpl': save_path.replace('.mp4', ''),
+                'format': 'best',
+                'nopart': True,
+                'quiet': True,
+                'nocheckcertificate': True,  # Yeh line SSL certificate expired error ko fix karegi
+            }
