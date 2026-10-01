@@ -1,3 +1,4 @@
+# main.py
 import logging
 import os
 import threading
@@ -13,21 +14,19 @@ from three import register_appxwp_handlers
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def run_web():
-    port = int(os.environ.get("PORT", 8080))
+    # Render assigns the port dynamically via environmental variable PORT (defaults to 10000)
+    port = int(os.environ.get("PORT", 10000))
     try:
         from flask import Flask
         app = Flask(__name__)
         @app.route("/")
         def health():
-            return "Bot running", 200
+            return "Bot is alive and running", 200
         app.run(host="0.0.0.0", port=port)
-    except Exception:
-        import http.server
-        import socketserver
-        handler = http.server.SimpleHTTPRequestHandler
-        with socketserver.TCPServer(("", port), handler) as httpd:
-            httpd.serve_forever()
+    except Exception as e:
+        logging.error(f"Flask server failed to start: {e}")
 
+# Start the web health check server in a background thread immediately
 threading.Thread(target=run_web, daemon=True).start()
 
 bot = Client("techvjbot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
@@ -46,7 +45,7 @@ async def help(bot: Client, message: Message):
     keyboard = [
         [InlineKeyboardButton("🚀 Physics Wallah 🚀", callback_data="pwwp")],
         [InlineKeyboardButton("📘 Classplus 📘", callback_data="cpwp")],
-        [InlineKeyboardButton("📒 Appx 📒", callback_data="appxwp")]
+        [InlineKeyboardButton("📒 Classx / Appx 📒", callback_data="appxwp")]
     ]
     await message.reply_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
