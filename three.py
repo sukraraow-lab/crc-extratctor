@@ -32,7 +32,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
             user_id_val = await prompt_user(bot, m, editable, "**Enter User ID (press enter or type `0` if not required):**", user_id)
             
-            await editable.edit("**Fetching courses using Classx/Appx endpoints... 🔍**")
+            await editable.edit("**Fetching courses using Classx API endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -47,10 +47,11 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             }
             
             endpoints = [
-                "/get_user_course",
+                "/get/get_user_courses",
+                "/get/get_courses",
+                "/get/users/getCourses",
                 "/get_user_courses",
                 "/get_courses",
-                "/users/getCourses",
                 "/v1/users/get-batches"
             ]
             
@@ -83,8 +84,8 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             
             if not data:
                 await editable.edit(
-                    "⚠️ **Failed to fetch courses (All endpoints returned 404 or invalid format).**\n\n"
-                    "Please double-check your API Base URL (e.g., `https://sachinacademyapi.classx.co.in`) and Auth Key."
+                    "⚠️ **Failed to fetch courses.**\n\n"
+                    "Make sure your API Base URL is correct (e.g., `https://sachinacademyapi.classx.co.in`) and your Auth Key is valid."
                 )
                 return
             
@@ -93,7 +94,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 batches = batches.get("data", []) or batches.get("courses", [])
             
             if not batches:
-                await editable.edit("**Connected successfully, but no courses/batches found in your account.**")
+                await editable.edit("**Connected successfully, but no courses found in your account.**")
                 return
             
             keyboard = []
