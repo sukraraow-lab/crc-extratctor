@@ -24,7 +24,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
     editable = await m.reply_text("**Appx Extractor Initialized ⏳**")
     try:
         async with aiohttp.ClientSession() as session:
-            api_url = await prompt_user(bot, m, editable, "**Enter App Base API URL (e.g., https://api.appx.co.in):**", user_id)
+            api_url = await prompt_user(bot, m, editable, "**Enter Backend API Base URL**\n*(⚠️ Note: Enter the API domain like `https://api.appx.co.in`, NOT the website link!)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Bearer Token:**", user_id)
             
             await editable.edit("**Testing API endpoints... 🔍**")
@@ -55,6 +55,11 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     async with session.get(url, headers=headers, timeout=10) as resp:
                         last_status = resp.status
                         last_text = await resp.text()
+                        
+                        # Check if response is HTML (meaning wrong URL / website instead of API)
+                        if last_text.strip().lower().startswith("<!doctype") or "<html" in last_text.lower():
+                            continue
+                            
                         if resp.status == 200:
                             try:
                                 res_json = json.loads(last_text) if isinstance(last_text, str) else last_text
@@ -68,8 +73,10 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     continue
             
             if not data:
-                debug_msg = f"**API Error (Last Status: `{last_status}`):**\n`{last_text[:300]}`\n\nCheck your API Base URL or Token."
-                await editable.edit(debug_msg)
+                if "<html" in last_text.lower() or "<!doctype" in last_text.lower():
+                    await editable.edit("⚠️ **Incorrect URL Type Entered!**\n\nYou entered a website link instead of an API domain (it returned an HTML page). Make sure to use your provider's backend API URL (e.g., `https://api.appx.co.in`).")
+                else:
+                    await editable.edit(f"**API Error (Status `{last_status}`):**\n`{last_text[:250]}`\n\nCheck your API Base URL or Token.")
                 return
             
             batches = data.get("data") or data.get("courses") or data
