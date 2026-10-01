@@ -30,9 +30,10 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
         async with aiohttp.ClientSession() as session:
             api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
-            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
+            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)[cite: 22]
+            course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281` from your browser URL):**", user_id)[cite: 22]
             
-            await editable.edit("**Testing Classx API endpoints... 🔍**")
+            await editable.edit("**Fetching course content using Classx endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -46,73 +47,34 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 "Content-Type": "application/json"
             }
             
+            base = api_url.rstrip('/')
             endpoints = [
-                f"/get/get_courses?userid={uid}",
-                f"/get/get_user_courses?userid={uid}",
-                f"/get/getCourses?userid={uid}",
-                "/get/get_courses",
-                "/get/get_user_courses",
-                "/get/getCourses",
-                "/get/get_my_courses",
-                "/get_courses",
-                "/get_user_courses"
+                f"/get/getposts?course_id={course_id}&start=-1",
+                f"/get/course_by_id?id={course_id}",
+                f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1",
+                f"/get/filtersbycourse?courseid={course_id}"
             ]
             
-            base = api_url.rstrip('/')
             data = None
+            last_status = None
             
             for ep in endpoints:
                 url = f"{base}{ep}"
                 try:
                     async with session.get(url, headers=headers, timeout=10) as resp:
+                        last_status = resp.status
                         text = await resp.text()
                         if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
-                            res_json = json.loads(text)
-                            if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
-                                data = res_json
-                                break
-                except Exception:
-                    pass
-
-                try:
-                    async with session.post(url, headers=headers, json={"userid": uid, "user_id": uid}, timeout=10) as resp:
-                        text = await resp.text()
-                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
-                            res_json = json.loads(text)
-                            if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
-                                data = res_json
-                                break
+                            data = json.loads(text)
+                            break
                 except Exception:
                     pass
             
             if not data:
-                await editable.edit(
-                    "⚠️ **Failed to fetch courses (404 Error).**\n\n"
-                    "Please verify your Auth Key and User ID (`333312`)."
-                )
+                await editable.edit(f"⚠️ **Failed to fetch course data (Status: `{last_status}`). Check your Course ID or Auth Key.**")
                 return
             
-            batches = data.get("data") or data.get("courses") or data
-            if isinstance(batches, dict):
-                batches = batches.get("data", []) or batches.get("courses", [])
-            
-            if not batches:
-                await editable.edit("**Connected successfully, but no courses found in response.**")
-                return
-            
-            keyboard = []
-            for b in batches[:15]:
-                title = b.get("title") or b.get("name") or b.get("courseName") or "Untitled Course"
-                bid = b.get("_id") or b.get("id") or b.get("courseId")
-                if bid:
-                    keyboard.append([InlineKeyboardButton(str(title)[:35], callback_data=f"appx_batch_{bid}")])
-            
-            if not keyboard:
-                await editable.edit("**Courses found, but could not parse course IDs.**")
-                return
-                
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await editable.edit(f"**Found {len(batches)} courses! Select one below to extract:**", reply_markup=reply_markup)
+            await editable.edit(f"✅ **Successfully connected and fetched course ID `{course_id}`!**\n\nCourse data loaded successfully. Ready for full extraction.")
             
     except ProcessCancelledException:
         pass
@@ -126,9 +88,3 @@ def register_appxwp_handlers(bot: Client):
         user_id = callback_query.from_user.id
         await callback_query.answer()
         asyncio.create_task(process_appxwp(client, callback_query.message, user_id))
-    
-    @bot.on_callback_query(filters.regex(r"^appx_batch_"))
-    async def appx_batch_callback(client: Client, callback_query):
-        batch_id = callback_query.data.split("_")[2]
-        await callback_query.answer("Extracting batch content...")
-        await callback_query.message.edit_text(f"**Extracting contents for Course/Batch ID:** `{batch_id}`...\n\nGeneration of structured `.txt` download links in progress.")
