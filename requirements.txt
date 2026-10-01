@@ -21,3 +21,7 @@ pyrogram
 tgcrypto
 aiohttp
 yt-dlp
+pyrogram
+tgcrypto
+yt-dlp
+aiohttp
