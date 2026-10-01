@@ -46,7 +46,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 return
             
             keyboard = []
-            for b in batches[:15]:  # Limit to 15 buttons for UI clarity
+            for b in batches[:15]:
                 title = b.get("title") or b.get("name") or "Untitled Batch"
                 bid = b.get("_id") or b.get("id")
                 keyboard.append([InlineKeyboardButton(title[:35], callback_data=f"appx_batch_{bid}")])
@@ -67,7 +67,7 @@ def register_appxwp_handlers(bot: Client):
         await callback_query.answer()
         asyncio.create_task(process_appxwp(client, callback_query.message, user_id))
     
-    @bot.on_callback_query(filters.regex(^appx_batch_"))
+    @bot.on_callback_query(filters.regex(r"^appx_batch_"))
     async def appx_batch_callback(client: Client, callback_query):
         batch_id = callback_query.data.split("_")[2]
         await callback_query.answer("Extracting batch content...")
