@@ -17,3 +17,7 @@ python-decouple==3.8
 Flask==3.0.3
 gunicorn==22.0.0
 pyromod==3.1.6
+pyrogram
+tgcrypto
+aiohttp
+yt-dlp
