@@ -25,19 +25,19 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx / Appx Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Extractor Initialized ⏳**")
     try:
         async with aiohttp.ClientSession() as session:
             api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
             token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
-            user_id_val = await prompt_user(bot, m, editable, "**Enter User ID (press enter or type `0` if not required):**", user_id)
+            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
             
-            await editable.edit("**Fetching courses using Classx API endpoints... 🔍**")
+            await editable.edit("**Testing Classx API endpoints with User ID... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
                 "auth-key": token,
-                "User-ID": user_id_val if user_id_val and user_id_val.isdigit() else "0",
+                "User-ID": uid,
                 "client-service": "Appx",
                 "source": "website",
                 "Device-Type": "WEB",
@@ -47,45 +47,52 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             }
             
             endpoints = [
+                f"/get/get_user_courses?userid={uid}",
+                f"/get/getCourses?userid={uid}",
+                f"/get/get_courses?userid={uid}",
                 "/get/get_user_courses",
                 "/get/get_courses",
-                "/get/users/getCourses",
-                "/get_user_courses",
-                "/get_courses",
-                "/v1/users/get-batches"
+                "/get/getCourses"
             ]
             
             base = api_url.rstrip('/')
             data = None
+            last_status = None
+            last_text = ""
             
             for ep in endpoints:
                 url = f"{base}{ep}"
                 try:
                     async with session.get(url, headers=headers, timeout=10) as resp:
-                        text = await resp.text()
-                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
-                            res_json = json.loads(text)
+                        last_status = resp.status
+                        last_text = await resp.text()
+                        if resp.status == 200 and not ("<html" in last_text.lower() or "<!doctype" in last_text.lower()):
+                            res_json = json.loads(last_text)
                             if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
                                 data = res_json
                                 break
-                except Exception:
+                except Exception as e:
+                    last_text = str(e)
                     pass
 
                 try:
-                    async with session.post(url, headers=headers, json={"user_id": user_id_val}, timeout=10) as resp:
-                        text = await resp.text()
-                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
-                            res_json = json.loads(text)
+                    async with session.post(url, headers=headers, json={"userid": uid, "user_id": uid}, timeout=10) as resp:
+                        last_status = resp.status
+                        last_text = await resp.text()
+                        if resp.status == 200 and not ("<html" in last_text.lower() or "<!doctype" in last_text.lower()):
+                            res_json = json.loads(last_text)
                             if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
                                 data = res_json
                                 break
-                except Exception:
+                except Exception as e:
+                    last_text = str(e)
                     pass
             
             if not data:
                 await editable.edit(
-                    "⚠️ **Failed to fetch courses.**\n\n"
-                    "Make sure your API Base URL is correct (e.g., `https://sachinacademyapi.classx.co.in`) and your Auth Key is valid."
+                    f"⚠️ **Failed to fetch courses (Last Status: `{last_status}`).**\n\n"
+                    f"Response snippet:\n`{last_text[:200]}`\n\n"
+                    f"Make sure User ID `333312` and your Auth Key are correct."
                 )
                 return
             
