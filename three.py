@@ -27,34 +27,34 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
 async def process_appxwp(bot: Client, m: Message, user_id: int):
     editable = await m.reply_text("**Classx Extractor Initialized ⏳**")
     try:
-        async with aiohttp.ClientSession() as session:
-            api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
-            token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
-            uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
-            course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
-            
-            await editable.edit("**Authenticating & fetching course content... 🔍**")
-            
-            # Clean token
-            token = token.strip().strip('"').strip("'")
-            
-            # Multiple header variations to prevent 401 Unauthorized
-            headers_options = [
-                {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
-                {"Authorization": f"Bearer {token}", "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
-                {"Authorization": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"}
-            ]
-            
-            base = api_url.rstrip('/')
-            endpoints = [
-                f"/get/getposts?course_id={course_id}&start=-1",
-                f"/get/course_by_id?id={course_id}",
-                f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1"
-            ]
-            
-            data = None
-            last_status = 401
-            
+        api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
+        token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
+        uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
+        course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
+        
+        await editable.edit("**Authenticating & fetching course content... 🔍**")
+        
+        token = token.strip().strip('"').strip("'")
+        
+        headers_options = [
+            {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
+            {"Authorization": f"Bearer {token}", "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"},
+            {"Authorization": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB", "User-Agent": "Mozilla/5.0"}
+        ]
+        
+        base = api_url.rstrip('/')
+        endpoints = [
+            f"/get/getposts?course_id={course_id}&start=-1",
+            f"/get/course_by_id?id={course_id}",
+            f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1"
+        ]
+        
+        data = None
+        last_status = 401
+        
+        # Safely managed connector to prevent file descriptor -1 errors
+        connector = aiohttp.TCPConnector(force_close=True, ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
             for headers in headers_options:
                 headers.update({"Accept": "application/json", "Content-Type": "application/json"})
                 for ep in endpoints:
@@ -70,13 +70,13 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                         pass
                 if data:
                     break
-            
-            if not data:
-                await editable.edit(f"⚠️ **Authentication Failed (Status: `{last_status}`).**\n\nStatus `401` means your **Auth Key/Token** ya **User ID** galat ya expired hai. Kripya browser ke Network tab se fresh token lekar dobara try karein.")
-                return
-            
-            await editable.edit(f"✅ **Successfully authenticated and fetched course ID `{course_id}`!**\n\nCourse data loaded successfully. Ready for full extraction.")
-            
+        
+        if not data:
+            await editable.edit(f"⚠️ **Authentication Failed (Status: `{last_status}`).**\n\nStatus `401` means your **Auth Key/Token** or **User ID** is incorrect or expired.")
+            return
+        
+        await editable.edit(f"✅ **Successfully authenticated and fetched course ID `{course_id}`!**\n\nCourse data loaded successfully. Ready for full extraction.")
+        
     except ProcessCancelledException:
         pass
     except Exception as e:
