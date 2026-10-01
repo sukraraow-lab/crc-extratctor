@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import aiohttp
+import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -14,45 +15,88 @@ except ImportError:
 LEECH_STATES = {}
 
 async def download_file(url: str, save_path: str, status_msg: Message, title: str, idx: int, total_links: int, user_id: int) -> bool:
+    """Handles both direct files (PDF/MP4) and streaming playlists (.m3u8 / .mpd via yt-dlp)."""
     try:
-        connector = aiohttp.TCPConnector(ssl=False)
-        async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, timeout=300) as resp:
-                if resp.status == 200:
-                    total_size = int(resp.headers.get("Content-Length", 0))
-                    downloaded = 0
-                    with open(save_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(1024 * 64):
-                            if LEECH_STATES.get(user_id, {}).get("stopped"):
-                                return False
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size > 0:
-                                percent = (downloaded / total_size) * 100
-                                filled = int(percent // 10)
-                                bar = "▓" * filled + "░" * (10 - filled)
-                                mb_done = downloaded / (1024 * 1024)
-                                mb_total = total_size / (1024 * 1024)
-                                try:
-                                    is_paused = LEECH_STATES.get(user_id, {}).get("paused", False)
-                                    pause_btn_text = "▶️ Resume" if is_paused else "⏸ Pause"
-                                    pause_callback = "leech_resume" if is_paused else "leech_pause"
+        is_stream = any(ext in url.lower() for ext in ['.m3u8', '.mpd', 'playlist'])
+        
+        if is_stream:
+            # Use yt-dlp to handle HLS / DASH streams and convert to playable MP4
+            ydl_opts = {
+                'outtmpl': save_path.replace('.mp4', ''),
+                'format': 'best',
+                'nopart': True,
+                'quiet': True,
+            }
+            # If save_path ends with something else, adjust output template
+            if not save_path.endswith('.mp4'):
+                ydl_opts['outtmpl'] = save_path + '.%(ext)s'
 
-                                    await status_msg.edit(
-                                        f"📤 **Leeching:** `{idx}/{total_links}`\n"
-                                        f"📌 **Title:** `{title}`\n"
-                                        f"📊 **Downloading:** [{bar}] `{percent:.1f}%`\n"
-                                        f"📦 `{mb_done:.1f} MB / {mb_total:.1f} MB`",
-                                        reply_markup=InlineKeyboardMarkup([
-                                            [InlineKeyboardButton(pause_btn_text, callback_data=pause_callback),
-                                             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
-                                        ])
-                                    )
-                                except Exception:
-                                    pass
+            await status_msg.edit(
+                f"📥 **Downloading Stream (HLS/DASH):** `{idx}/{total_links}`\n"
+                f"📌 **Title:** `{title}`\n"
+                f"⏳ *Processing stream via yt-dlp...*",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
+                     InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                ])
+            )
+
+            def run_ytdl():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+
+            await asyncio.to_thread(run_ytdl)
+            
+            # Find the actual downloaded file if extension changed
+            base_path = save_path.rsplit('.', 1)[0]
+            for ext in ['.mp4', '.mkv', '.webm', '.ts']:
+                full_p = base_path + ext
+                if os.path.exists(full_p) and os.path.getsize(full_p) > 0:
+                    if full_p != save_path:
+                        os.rename(full_p, save_path)
                     return True
+            return False
+
+        else:
+            # Standard direct file download (PDF or direct MP4) with progress
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(url, timeout=300) as resp:
+                    if resp.status == 200:
+                        total_size = int(resp.headers.get("Content-Length", 0))
+                        downloaded = 0
+                        with open(save_path, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(1024 * 64):
+                                if LEECH_STATES.get(user_id, {}).get("stopped"):
+                                    return False
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    percent = (downloaded / total_size) * 100
+                                    filled = int(percent // 10)
+                                    bar = "▓" * filled + "░" * (10 - filled)
+                                    mb_done = downloaded / (1024 * 1024)
+                                    mb_total = total_size / (1024 * 1024)
+                                    try:
+                                        is_paused = LEECH_STATES.get(user_id, {}).get("paused", False)
+                                        pause_btn_text = "▶️ Resume" if is_paused else "⏸ Pause"
+                                        pause_callback = "leech_resume" if is_paused else "leech_pause"
+
+                                        await status_msg.edit(
+                                            f"📤 **Leeching:** `{idx}/{total_links}`\n"
+                                            f"📌 **Title:** `{title}`\n"
+                                            f"📊 **Downloading:** [{bar}] `{percent:.1f}%`\n"
+                                            f"📦 `{mb_done:.1f} MB / {mb_total:.1f} MB`",
+                                            reply_markup=InlineKeyboardMarkup([
+                                                [InlineKeyboardButton(pause_btn_text, callback_data=pause_callback),
+                                                 InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                                            ])
+                                        )
+                                    except Exception:
+                                        pass
+                        return True
     except Exception as e:
-        logging.error(f"Download failed: {e}")
+        logging.error(f"Download failed for {url}: {e}")
     return False
 
 async def process_leech_file(client: Client, message: Message, file_path: str, target_chat_id: int, user_id: int):
@@ -105,7 +149,7 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
             url = url_part.strip()
             if not url.startswith("http"): continue
 
-            is_video = any(ext in url.lower() for ext in ['.mp4', '.m3u8', '.mpd', 'video'])
+            is_video = any(ext in url.lower() for ext in ['.mp4', '.m3u8', '.mpd', 'video', 'playlist'])
             ext = ".mp4" if is_video else ".pdf"
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
             local_filename = f"{safe_title}{ext}"
