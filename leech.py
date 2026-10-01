@@ -3,7 +3,7 @@ import asyncio
 import logging
 import aiohttp
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 try:
     from helpers import ask_user
@@ -11,24 +11,61 @@ except ImportError:
     async def ask_user(*args, **kwargs):
         return None
 
-async def download_file(url: str, save_path: str) -> bool:
+LEECH_STATES = {}
+
+async def download_file(url: str, save_path: str, status_msg: Message, title: str, idx: int, total_links: int, user_id: int) -> bool:
     try:
         connector = aiohttp.TCPConnector(ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url, timeout=300) as resp:
                 if resp.status == 200:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
                     with open(save_path, "wb") as f:
-                        while True:
-                            chunk = await resp.content.read(1024 * 64)
-                            if not chunk: break
+                        async for chunk in resp.content.iter_chunked(1024 * 64):
+                            if LEECH_STATES.get(user_id, {}).get("stopped"):
+                                return False
                             f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                percent = (downloaded / total_size) * 100
+                                filled = int(percent // 10)
+                                bar = "▓" * filled + "░" * (10 - filled)
+                                mb_done = downloaded / (1024 * 1024)
+                                mb_total = total_size / (1024 * 1024)
+                                try:
+                                    is_paused = LEECH_STATES.get(user_id, {}).get("paused", False)
+                                    pause_btn_text = "▶️ Resume" if is_paused else "⏸ Pause"
+                                    pause_callback = "leech_resume" if is_paused else "leech_pause"
+
+                                    await status_msg.edit(
+                                        f"📤 **Leeching:** `{idx}/{total_links}`\n"
+                                        f"📌 **Title:** `{title}`\n"
+                                        f"📊 **Downloading:** [{bar}] `{percent:.1f}%`\n"
+                                        f"📦 `{mb_done:.1f} MB / {mb_total:.1f} MB`",
+                                        reply_markup=InlineKeyboardMarkup([
+                                            [InlineKeyboardButton(pause_btn_text, callback_data=pause_callback),
+                                             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                                        ])
+                                    )
+                                except Exception:
+                                    pass
                     return True
     except Exception as e:
         logging.error(f"Download failed: {e}")
     return False
 
-async def process_leech_file(client: Client, message: Message, file_path: str, target_chat_id: int):
-    status_msg = await message.reply_text("📥 **Reading `.txt` file and starting leeching...**")
+async def process_leech_file(client: Client, message: Message, file_path: str, target_chat_id: int, user_id: int):
+    LEECH_STATES[user_id] = {"paused": False, "stopped": False}
+    
+    status_msg = await message.reply_text(
+        "📥 **Reading `.txt` file and starting leeching...**",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
+             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+        ])
+    )
+    
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
@@ -40,6 +77,21 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
 
         success, fail = 0, 0
         for idx, line in enumerate(lines, 1):
+            state = LEECH_STATES.get(user_id, {"paused": False, "stopped": False})
+            if state.get("stopped"):
+                await status_msg.edit("❌ **Leech Task Stopped Successfully!**", reply_markup=None)
+                break
+
+            while state.get("paused") and not state.get("stopped"):
+                await asyncio.sleep(1)
+                state = LEECH_STATES.get(user_id, {"paused": False, "stopped": False})
+                if state.get("stopped"):
+                    break
+
+            if LEECH_STATES.get(user_id, {}).get("stopped"):
+                await status_msg.edit("❌ **Leech Task Stopped Successfully!**", reply_markup=None)
+                break
+
             line = line.strip()
             if not line or ":" not in line: continue
             
@@ -58,10 +110,23 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).rstrip()
             local_filename = f"{safe_title}{ext}"
 
-            await status_msg.edit(f"📤 **Leeching:** `{idx}/{total_links}`\n📌 `{safe_title}`")
+            downloaded_ok = await download_file(url, local_filename, status_msg, title, idx, total_links, user_id)
+            if LEECH_STATES.get(user_id, {}).get("stopped"):
+                if os.path.exists(local_filename): os.remove(local_filename)
+                await status_msg.edit("❌ **Leech Task Stopped Successfully!**", reply_markup=None)
+                break
 
-            if await download_file(url, local_filename):
+            if downloaded_ok and os.path.exists(local_filename) and os.path.getsize(local_filename) > 0:
                 try:
+                    await status_msg.edit(
+                        f"📤 **Leeching:** `{idx}/{total_links}`\n"
+                        f"📌 **Title:** `{title}`\n"
+                        f"📤 **Status:** Uploading to Telegram group...",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("⏸️ Pause", callback_data="leech_pause"),
+                             InlineKeyboardButton("⏹️ Stop", callback_data="leech_stop")]
+                        ])
+                    )
                     caption = f"📁 **Title:** `{title}`" + (f"\n🔑 **Key:** `{key}`" if key else "")
                     if is_video:
                         await client.send_video(chat_id=target_chat_id, video=local_filename, caption=caption, supports_streaming=True)
@@ -77,12 +142,17 @@ async def process_leech_file(client: Client, message: Message, file_path: str, t
                 fail += 1
             await asyncio.sleep(2)
 
-        await status_msg.edit(f"✅ **Leech Completed!**\nSuccess: `{success}` | Failed: `{fail}`")
+        if not LEECH_STATES.get(user_id, {}).get("stopped"):
+            await status_msg.edit(f"✅ **Leech Completed!**\nSuccess: `{success}` | Failed: `{fail}`", reply_markup=None)
+            
     except Exception as e:
         logging.exception("Error in leech:")
         await status_msg.edit(f"❌ **Error:** `{e}`")
     finally:
-        if os.path.exists(file_path): os.remove(file_path)
+        if user_id in LEECH_STATES:
+            del LEECH_STATES[user_id]
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 def register_leech_handlers(bot: Client):
     @bot.on_message(filters.document & filters.private)
@@ -105,6 +175,34 @@ def register_leech_handlers(bot: Client):
             
             target_chat_id = int(target_chat_input.strip())
             file_path = await message.download()
-            asyncio.create_task(process_leech_file(client, message, file_path, target_chat_id))
+            asyncio.create_task(process_leech_file(client, message, file_path, target_chat_id, user_id))
         except Exception as e:
             logging.error(f"Error: {e}")
+
+    @bot.on_callback_query(filters.regex("^leech_pause$"))
+    async def pause_leech_callback(client: Client, callback_query: CallbackQuery):
+        user_id = callback_query.from_user.id
+        if user_id in LEECH_STATES:
+            LEECH_STATES[user_id]["paused"] = True
+            await callback_query.answer("⏸️ Leech process paused!")
+        else:
+            await callback_query.answer("No active leech task found.", show_alert=True)
+
+    @bot.on_callback_query(filters.regex("^leech_resume$"))
+    async def resume_leech_callback(client: Client, callback_query: CallbackQuery):
+        user_id = callback_query.from_user.id
+        if user_id in LEECH_STATES:
+            LEECH_STATES[user_id]["paused"] = False
+            await callback_query.answer("▶️ Leech process resumed!")
+        else:
+            await callback_query.answer("No active leech task found.", show_alert=True)
+
+    @bot.on_callback_query(filters.regex("^leech_stop$"))
+    async def stop_leech_callback(client: Client, callback_query: CallbackQuery):
+        user_id = callback_query.from_user.id
+        if user_id in LEECH_STATES:
+            LEECH_STATES[user_id]["stopped"] = True
+            LEECH_STATES[user_id]["paused"] = False
+            await callback_query.answer("⏹️ Leech process stopped!")
+        else:
+            await callback_query.answer("No active leech task found.", show_alert=True)
