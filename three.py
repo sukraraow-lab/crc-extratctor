@@ -1,3 +1,7 @@
+### 2. Updated `three.py` (Fixes Classx 404 Errors with POST/GET Support)
+Replace your `three.py` with this version, which supports Classx's exact `POST` and `GET` routes and custom headers:
+
+```python
 # three.py
 import asyncio
 import json
@@ -25,59 +29,65 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
     try:
         async with aiohttp.ClientSession() as session:
             api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
-            token = await prompt_user(bot, m, editable, "**Enter Bearer Token or Auth Key:**", user_id)
+            token = await prompt_user(bot, m, editable, "**Enter Auth Key / Bearer Token:**", user_id)
+            user_id_val = await prompt_user(bot, m, editable, "**Enter User ID (press enter or type `0` if not required):**", user_id)
             
-            await editable.edit("**Testing Classx/Appx API endpoints... 🔍**")
+            await editable.edit("**Fetching courses using Classx/Appx endpoints... 🔍**")
             
             headers = {
                 "Authorization": f"Bearer {token}",
                 "auth-key": token,
+                "User-ID": user_id_val if user_id_val and user_id_val.isdigit() else "0",
+                "client-service": "Appx",
+                "source": "website",
+                "Device-Type": "WEB",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json"
+                "Accept": "application/json",
+                "Content-Type": "application/json"
             }
             
-            # Updated Classx & Appx course endpoints
+            # Endpoints to test via GET and POST
             endpoints = [
-                "/get_courses",
+                "/get_user_course",
                 "/get_user_courses",
+                "/get_courses",
                 "/users/getCourses",
-                "/v1/users/get-batches",
-                "/api/v3/live-course/user-courses",
-                "/v1/course/user-courses"
+                "/v1/users/get-batches"
             ]
             
             base = api_url.rstrip('/')
-            last_status = None
-            last_text = ""
             data = None
             
             for ep in endpoints:
+                url = f"{base}{ep}"
+                # Try GET request
                 try:
-                    url = f"{base}{ep}"
                     async with session.get(url, headers=headers, timeout=10) as resp:
-                        last_status = resp.status
-                        last_text = await resp.text()
-                        
-                        # Skip if response is HTML page (404/error page)
-                        if "<html" in last_text.lower() or "<!doctype" in last_text.lower():
-                            continue
-                            
-                        if resp.status == 200:
-                            try:
-                                res_json = json.loads(last_text) if isinstance(last_text, str) else last_text
-                                if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
-                                    data = res_json
-                                    break
-                            except Exception:
-                                pass
-                except Exception as e:
-                    last_text = str(e)
-                    continue
+                        text = await resp.text()
+                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
+                            res_json = json.loads(text)
+                            if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
+                                data = res_json
+                                break
+                except Exception:
+                    pass
+
+                # Try POST request
+                try:
+                    async with session.post(url, headers=headers, json={"user_id": user_id_val}, timeout=10) as resp:
+                        text = await resp.text()
+                        if resp.status == 200 and not ("<html" in text.lower() or "<!doctype" in text.lower()):
+                            res_json = json.loads(text)
+                            if res_json.get("data") or res_json.get("courses") or isinstance(res_json, list):
+                                data = res_json
+                                break
+                except Exception:
+                    pass
             
             if not data:
                 await editable.edit(
-                    f"⚠️ **Could not fetch courses automatically (Last Status: `{last_status}`).**\n\n"
-                    f"Make sure your Base URL is correct (e.g., `https://sachinacademyapi.classx.co.in`) and your token/auth key is valid."
+                    "⚠️ **Failed to fetch courses (All endpoints returned 404 or invalid format).**\n\n"
+                    "Please double-check your API Base URL (e.g., `https://sachinacademyapi.classx.co.in`) and Auth Key."
                 )
                 return
             
@@ -86,7 +96,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 batches = batches.get("data", []) or batches.get("courses", [])
             
             if not batches:
-                await editable.edit("**Connected successfully, but no courses/batches found in the account response.**")
+                await editable.edit("**Connected successfully, but no courses/batches found in your account.**")
                 return
             
             keyboard = []
