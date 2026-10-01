@@ -25,73 +25,56 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx Ultimate Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Advanced Extractor Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
         token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Smart-testing all Classx header variations... 🔍**")
+        await editable.edit("**Bypassing 401 with full browser headers simulation... 🔍**")
         
         token = token.strip().strip('"').strip("'")
         base = api_url.rstrip('/')
         
-        # Expanded variations for Classx / Appx backends
-        header_variants = [
-            {"auth-key": token, "User-ID": uid, "client-service": "classx", "source": "website", "Device-Type": "WEB"},
-            {"auth-key": token, "User-ID": uid, "client-service": "Appx", "source": "website", "Device-Type": "WEB"},
-            {"auth-key": token, "User-ID": uid, "client-service": "classx"},
-            {"Authorization": f"Bearer {token}", "auth-key": token, "User-ID": uid, "client-service": "classx"},
-            {"Authorization": token, "auth-key": token, "User-ID": uid, "client-service": "Appx"}
-        ]
+        # Complete browser-like headers to prevent 401 blocks
+        headers = {
+            "auth-key": token,
+            "Authorization": f"Bearer {token}",
+            "User-ID": uid,
+            "client-service": "classx",
+            "source": "website",
+            "Device-Type": "WEB",
+            "Origin": base.replace("api.", "").replace("api", ""),
+            "Referer": f"{base}/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json"
+        }
         
-        endpoints = [
-            f"/get/getposts?course_id={course_id}&start=-1",
-            f"/get/course_by_id?id={course_id}",
-            f"/get/allsubjectfrmlivecourseclass?courseid={course_id}&start=-1"
-        ]
-        
-        data = None
-        last_resp_text = ""
+        url = f"{base}/get/getposts?course_id={course_id}&start=-1"
         
         connector = aiohttp.TCPConnector(force_close=True, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            for base_headers in header_variants:
-                base_headers.update({
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "application/json",
-                    "Content-Type": "application/json"
-                })
-                
-                for ep in endpoints:
-                    url = f"{base}{ep}"
-                    try:
-                        async with session.get(url, headers=base_headers, timeout=8) as resp:
-                            last_resp_text = await resp.text()
-                            if resp.status == 200 and not ("<html" in last_resp_text.lower() or "<!doctype" in last_resp_text.lower()):
-                                try:
-                                    res_json = json.loads(last_resp_text)
-                                    if isinstance(res_json, dict) and res_json.get("status") == 401:
-                                        continue
-                                    data = res_json
-                                    break
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-                if data:
-                    break
-        
-        if not data:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                status = resp.status
+                resp_text = await resp.text()
+
+        if status == 401:
             await editable.edit(
-                f"⚠️ **Still getting 401 Unauthorized.**\n\n"
-                f"Last Server Response:\n`{last_resp_text[:300]}`\n\n"
-                f"💡 **Important Check:** Make sure you copy the exact value from the `auth-key` header in your browser's Network tab, not just a random cookie or login password."
+                "❌ **Still 401 Unauthorized.**\n\n"
+                "💡 **Reason:** Yeh token ya toh galat hai, ya server par expire ho chuka hai.\n"
+                "Kripya apne browser me website ko **refresh** karke **Network tab** se bilkul naya `auth-key` aur `User-ID` copy karein."
             )
             return
+
+        if status != 200:
+            await editable.edit(f"⚠️ **API Error (Status: `{status}`).**\n\nResponse:\n`{resp_text[:300]}`")
+            return
         
-        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData extracted. Ready for full extraction.")
+        data = json.loads(resp_text)
+        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData fetched. Ready for full extraction.")
         
     except ProcessCancelledException:
         pass
