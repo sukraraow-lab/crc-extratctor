@@ -25,19 +25,19 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
     return response.strip()
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
-    editable = await m.reply_text("**Classx Advanced Extractor Initialized ⏳**")
+    editable = await m.reply_text("**Classx Debug Extractor Initialized ⏳**")
     try:
         api_url = await prompt_user(bot, m, editable, "**Enter API Base URL:**\n*(Example: `https://sachinacademyapi.classx.co.in`)*:", user_id)
         token = await prompt_user(bot, m, editable, "**Enter Auth Key / Token:**", user_id)
         uid = await prompt_user(bot, m, editable, "**Enter User ID (e.g. `333312`):**", user_id)
         course_id = await prompt_user(bot, m, editable, "**Enter Course ID (e.g. `281`):**", user_id)
         
-        await editable.edit("**Bypassing 401 with full browser headers simulation... 🔍**")
+        await editable.edit("**Executing API request with full Debug Logging... 🔍**")
         
         token = token.strip().strip('"').strip("'")
         base = api_url.rstrip('/')
         
-        # Complete browser-like headers to prevent 401 blocks
+        # Comprehensive headers matching Appx/Classx client web apps
         headers = {
             "auth-key": token,
             "Authorization": f"Bearer {token}",
@@ -49,23 +49,34 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             "Referer": f"{base}/",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
             "Content-Type": "application/json"
         }
         
         url = f"{base}/get/getposts?course_id={course_id}&start=-1"
         
+        # Print detailed request logs to Render Console
+        logging.info("="*50)
+        logging.info(f"CLASSX DEBUG REQUEST URL: {url}")
+        logging.info(f"CLASSX DEBUG HEADERS: {json.dumps(headers, indent=2)}")
+        logging.info("="*50)
+        
         connector = aiohttp.TCPConnector(force_close=True, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(url, headers=headers, timeout=10) as resp:
+            async with session.get(url, headers=headers, timeout=15) as resp:
                 status = resp.status
                 resp_text = await resp.text()
+                
+        # Print detailed response logs to Render Console
+        logging.info("="*50)
+        logging.info(f"CLASSX DEBUG RESPONSE STATUS: {status}")
+        logging.info(f"CLASSX DEBUG RESPONSE BODY: {resp_text[:1000]}")
+        logging.info("="*50)
 
         if status == 401:
             await editable.edit(
-                "❌ **Still 401 Unauthorized.**\n\n"
-                "💡 **Reason:** Yeh token ya toh galat hai, ya server par expire ho chuka hai.\n"
-                "Kripya apne browser me website ko **refresh** karke **Network tab** se bilkul naya `auth-key` aur `User-ID` copy karein."
+                f"❌ **401 Unauthorized Detected.**\n\n"
+                f"Server Response:\n`{resp_text[:300]}`\n\n"
+                f"🔍 **Next Step:** Apne **Render Dashboard -> Logs** me check karein. Wahan aapko exact URL aur Headers dikh jayenge jisse aap verify kar sakte hain ki token sahi pass ho raha hai ya nahi."
             )
             return
 
@@ -73,8 +84,7 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
             await editable.edit(f"⚠️ **API Error (Status: `{status}`).**\n\nResponse:\n`{resp_text[:300]}`")
             return
         
-        data = json.loads(resp_text)
-        await editable.edit(f"✅ **Authentication Successful! Course ID `{course_id}` loaded successfully.**\n\nData fetched. Ready for full extraction.")
+        await editable.edit(f"✅ **Success! Course ID `{course_id}` loaded successfully.**")
         
     except ProcessCancelledException:
         pass
