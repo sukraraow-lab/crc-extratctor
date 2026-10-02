@@ -1,180 +1,68 @@
 import os
-import threading
-import traceback
 import asyncio
-import re
-import yt_dlp
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import logging
+from aiohttp import web
 from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
-# --- 1. DUMMY WEB SERVER FOR RENDER PORT 8080 ---
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running and alive!")
-        
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
+from three import register_appxwp_handlers
+from leech import register_leech_handlers
 
-def run_web_server():
-    port = int(os.getenv("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), SimpleHandler)
-    print(f"🌐 Dummy web server started on port {port}")
-    server.serve_forever()
+logging.basicConfig(level=logging.INFO)
 
-threading.Thread(target=run_web_server, daemon=True).start()
+async def handle(request):
+    return web.Response(text="Bot is running successfully!")
 
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
-# --- 2. CREDENTIALS & CONFIGURATION ---
-API_ID = 33956574
-API_HASH = "0bcd4b744ec2ab732c4135001e4e1299"
-SESSION_STRING = "AQIGIt4Ah4GLfjgUwKzwRWmJEoxs49GR9tIhnFpsFvaG4rGT67Vwl6dmdajtWdha0vAjvMNwX3l8_RsMx9TFSJU6tKa58sfzusCe8bfLKfaMNoJXloIBr-doEB2aC9tAzjvfY5veQt_Y1IHcmSD-EDYmCnPQDsTOoPvDbteQQhkOBZyGeA_-gurAeMyM2JMWjjTuRWvayZOBuvA5DhHvt9YWRrcotG86eZeu-uXock7Bz0dz2Kq5PS8KxY9duDQTDrZtpjTqJ5LNXd96_UZI9lCdPP9T9t625PwGpr40mF7YgnwWV18AM5gFdHyJeh2OOwLdUicL8mTm8YLjWC7WtFixxlrGLgAAAAHLCvarAA"
+API_ID = int(os.environ.get("API_ID", "0"))
+API_HASH = os.environ.get("API_HASH", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# Test karne ke liye filhal 'me' (Saved Messages) rakha hai, baad me apna channel ID daal sakte hain
-CHANNEL_ID = "me"  
-
-app = Client(
-    "unified_leech_bot",
+bot = Client(
+    "nanex_bot",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING
+    bot_token=BOT_TOKEN
 )
 
+# Register modules handlers
+register_appxwp_handlers(bot)
+register_leech_handlers(bot)
 
-# ==========================================================
-# --- 3. COURSE EXTRACTOR SYSTEM (Yahan apna extractor rakhein) ---
-# ==========================================================
-def extract_course_links(raw_input):
-    """
-    Yahan aap apne course extractor ka logic likh sakte hain.
-    Yeh function raw text ya file se links filter karke list return karega.
-    """
-    links = []
+# Start Menu with Inline Buttons
+@bot.on_message(filters.command("start") & filters.private)
+async def start_command(client: Client, message: Message):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📂 Extract Course (Classx/Appx)", callback_data="appxwp")],
+        [InlineKeyboardButton("📤 Leech .txt File to Group", callback_data="start_leech")]
+    ])
     
-    # Agar input ek file path hai (.txt)
-    if os.path.exists(str(raw_input)) and str(raw_input).endswith(".txt"):
-        with open(raw_input, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    # URL cleaning (Title aur extra text hatane ke liye)
-                    url_match = re.search(r'https?://[^\s]+', line)
-                    if url_match:
-                        clean_url = url_match.group(0).split(" ")[0]
-                        # PDF links ko skip karna
-                        if ".pdf" not in clean_url.lower():
-                            links.append(clean_url)
-    else:
-        # Agar koi single text message ya direct link hai
-        url_match = re.search(r'https?://[^\s]+', str(raw_input))
-        if url_match:
-            clean_url = url_match.group(0).split(" ")[0]
-            if ".pdf" not in clean_url.lower():
-                links.append(clean_url)
-                
-    return links
+    welcome_text = (
+        "👋 **Welcome to Nanex Bot!**\n\n"
+        "Aap is bot ke madhyam se Classx courses extract kar sakte hain ya apni `.txt` file ko seedha Telegram group me leech/upload kar sakte hain.\n\n"
+        "Neeche diye gaye buttons me se apna option chunein:"
+    )
+    await message.reply_text(welcome_text, reply_markup=keyboard)
 
-
-# --- 4. DOWNLOAD & UPLOAD LOGIC (yt-dlp + Pyrogram) ---
-async def process_single_link(client, link, target_channel):
-    file_path = None
-    try:
-        print(f"\n🔄 [PROCESSING] Link: {link}")
-        
-        ydl_opts = {
-            'outtmpl': 'downloads/%(title)s.%(ext)s',
-            'format': 'best[height<=720]',
-            'nopart': True,
-            'nocheckcertificate': True,
-        }
-        
-        os.makedirs('downloads', exist_ok=True)
-        
-        print("📥 Downloading video with yt-dlp...")
-        def run_ytdl():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(link, download=True)
-                filename = ydl.prepare_filename(info)
-                return filename
-
-        loop = asyncio.get_running_loop()
-        file_path = await loop.run_in_executor(None, run_ytdl)
-        
-        if not file_path or not os.path.exists(file_path):
-            raise Exception("Download failed: File not found (Link might be expired/404).")
-            
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        print(f"✅ Download Successful! Size: {file_size_mb:.2f} MB")
-
-        print("🚀 Uploading to Telegram...")
-        caption = f"📥 **Downloaded via Course Bot**\n🔗 `{link}`"
-        
-        await client.send_video(
-            chat_id=target_channel,
-            video=file_path,
-            caption=caption,
-            supports_streaming=True
-        )
-        print("✅ Upload Successful!")
-
-    except Exception as e:
-        error_msg = str(e)
-        print(f"\n❌ [FAILED] Task failed for link: {link}")
-        print(f"🔴 Error: {error_msg}")
-        
-        try:
-            error_text = f"❌ **Leech Failed!**\n\n🔗 **Link:** `{link}`\n🔴 **Error:** `{error_msg[:200]}`"
-            await client.send_message(chat_id=target_channel, text=error_text)
-        except Exception as tg_err:
-            print(f"⚠️ Could not send error to channel: {tg_err}")
-            
-    finally:
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-                print(f"🧹 Cleaned up local file: {file_path}")
-            except Exception as cleanup_err:
-                print(f"⚠️️ Cleanup warning: {cleanup_err}")
-        print(f"--------------------------------------------------\n")
-
-
-# --- 5. TELEGRAM HANDLERS ---
-@app.on_message(filters.command("start") & (filters.incoming | filters.me))
-async def start_command(client, message):
-    await message.reply("🤖 **Course Extractor & Leech Bot is Online!**\nSend a `.txt` file or course link.")
-
-@app.on_message(filters.document & (filters.incoming | filters.me))
-async def document_handler(client, message):
-    if message.document.file_name and message.document.file_name.endswith(".txt"):
-        await message.reply("📂 Processing `.txt` file through Extractor...")
-        downloaded_txt = await message.download()
-        
-        # Extractor function call
-        links = extract_course_links(downloaded_txt)
-        os.remove(downloaded_txt)
-        
-        await message.reply(f"🔍 Extracted {len(links)} links. Queue started...")
-        
-        for link in links:
-            await process_single_link(client, link, CHANNEL_ID)
-            await asyncio.sleep(2)
-            
-        await message.reply("✅ **All links processed from the file!**")
-
-@app.on_message(filters.text & ~filters.command("start") & (filters.incoming | filters.me))
-async def text_link_handler(client, message):
-    text = message.text.strip()
-    links = extract_course_links(text)
-    
-    if links:
-        await message.reply(f"🔄 Processing {len(links)} extracted link(s)...")
-        for link in links:
-            await process_single_link(client, link, CHANNEL_ID)
-    else:
-        await message.reply("⚠️ No valid video links found.")
+@bot.on_callback_query(filters.regex("^start_leech$"))
+async def leech_button_callback(client: Client, callback_query):
+    await callback_query.answer()
+    await callback_query.message.reply_text(
+        "📥 **Leech Mode Activated!**\n\n"
+        "Kripya apni generated **`.txt` file** ko is chat me document ki tarah bhej dein. Uske baad bot aapse Target Group ID puchega."
+    )
 
 if __name__ == "__main__":
-    print("🚀 Starting Unified Bot...")
-    app.run()
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_web_server())
+    print("Bot is starting with Button Menu...")
+    bot.run()
+    
