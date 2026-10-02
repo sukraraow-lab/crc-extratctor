@@ -1,20 +1,33 @@
 import os
+import threading
 import traceback
 import asyncio
 import yt_dlp
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import Client, filters
 
-# API credentials (Inhe aap env variable se ya direct rakh sakte hain)
-API_ID = int(33956574)
+# --- 1. DUMMY WEB SERVER FOR RENDER PORT 8080 ---
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running and alive!")
+
+def run_web_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SimpleHandler)
+    print(f"🌐 Dummy web server started on port {port}")
+    server.serve_forever()
+
+# Server ko background thread me start karna taaki Render port happy rahe
+threading.Thread(target=run_web_server, daemon=True).start()
+
+
+# --- 2. CREDENTIALS & SESSION CONFIGURATION ---
+API_ID = 33956574
 API_HASH = "0bcd4b744ec2ab732c4135001e4e1299"
-
-# Apni session string ko seedha yahan double quotes ke andar daal dein:
 SESSION_STRING = "AQIGIt4Ah4GLfjgUwKzwRWmJEoxs49GR9tIhnFpsFvaG4rGT67Vwl6dmdajtWdha0vAjvMNwX3l8_RsMx9TFSJU6tKa58sfzusCe8bfLKfaMNoJXloIBr-doEB2aC9tAzjvfY5veQt_Y1IHcmSD-EDYmCnPQDsTOoPvDbteQQhkOBZyGeA_-gurAeMyM2JMWjjTuRWvayZOBuvA5DhHvt9YWRrcotG86eZeu-uXock7Bz0dz2Kq5PS8KxY9duDQTDrZtpjTqJ5LNXd96_UZI9lCdPP9T9t625PwGpr40mF7YgnwWV18AM5gFdHyJeh2OOwLdUicL8mTm8YLjWC7WtFixxlrGLgAAAAHLCvarAA"
-
-CHANNEL_ID = -1003869611917  # Aapke channel ki ID
-
-if not API_ID or not API_HASH or not SESSION_STRING or not CHANNEL_ID:
-    print("❌ Error: Missing environment variables in Render!")
+CHANNEL_ID = -1003869611917  # Aapke target channel ki ID
 
 # Pyrogram Client Initialize karna
 app = Client(
@@ -24,11 +37,11 @@ app = Client(
     session_string=SESSION_STRING
 )
 
-# 2. Extractor / Link Processing Logic (Yahan aap apne extractor ka logic rakh sakte hain)
+
+# --- 3. EXRACTOR LOGIC (.txt FILE READER) ---
 def extract_links_from_txt(file_path):
     """
     Yeh function .txt file ko read karta hai aur valid links nikal kar list banata hai.
-    Agar aapke paas ClassX ka koi apna custom extractor function hai, toh aap use yahan jod sakte hain.
     """
     links = []
     with open(file_path, "r", encoding="utf-8") as f:
@@ -39,13 +52,14 @@ def extract_links_from_txt(file_path):
                 links.append(line)
     return links
 
-# 3. Download, Upload & Error Reporting Function
+
+# --- 4. DOWNLOAD, UPLOAD & ERROR REPORTING FUNCTION ---
 async def process_single_link(client, link, target_channel):
     file_path = None
     try:
         print(f"\n🔄 [PROCESSING] Link: {link}")
         
-        # yt-dlp options (RAM optimization ke sath)
+        # yt-dlp options (RAM optimization & quality control)
         ydl_opts = {
             'outtmpl': 'downloads/%(title)s.%(ext)s',
             'format': 'best[height<=720]',
@@ -106,7 +120,8 @@ async def process_single_link(client, link, target_channel):
                 print(f"⚠️ Cleanup warning: {cleanup_err}")
         print(f"--------------------------------------------------\n")
 
-# 4. Telegram Bot Handlers
+
+# --- 5. TELEGRAM BOT HANDLERS ---
 @app.on_message(filters.command("start"))
 async def start_command(client, message):
     await message.reply("🤖 **Unified Extractor & Leech Bot is Online!**\nSend a `.txt` file containing links or a single link.")
@@ -138,7 +153,8 @@ async def text_link_handler(client, message):
     else:
         await message.reply("⚠️ Please send a valid HTTP link or `.txt` file.")
 
-# Bot Start
+
+# --- 6. BOT RUNNER ---
 if __name__ == "__main__":
     print("🚀 Starting Unified Bot...")
     app.run()
