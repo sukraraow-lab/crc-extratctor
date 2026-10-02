@@ -6,7 +6,6 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
 from three import register_appxwp_handlers
-from leech import register_leech_handlers
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,36 +32,25 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# Register modules handlers
+# Register only Course Extractor handlers
 register_appxwp_handlers(bot)
-register_leech_handlers(bot)
 
-# Start Menu with Inline Buttons
+# Start Menu with Only Course Extractor Button
 @bot.on_message(filters.command("start") & filters.private)
 async def start_command(client: Client, message: Message):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📂 Extract Course (Classx/Appx)", callback_data="appxwp")],
-        [InlineKeyboardButton("📤 Leech .txt File to Group", callback_data="start_leech")]
+        [InlineKeyboardButton("📂 Extract Course (Classx/Appx)", callback_data="appxwp")]
     ])
     
     welcome_text = (
-        "👋 **Welcome to Nanex Bot!**\n\n"
-        "Aap is bot ke madhyam se Classx courses extract kar sakte hain ya apni `.txt` file ko seedha Telegram group me leech/upload kar sakte hain.\n\n"
-        "Neeche diye gaye buttons me se apna option chunein:"
+        "👋 **Welcome to Nanex Course Extractor Bot!**\n\n"
+        "Aap is bot ke madhyam se Classx aur Appx courses ko asani se extract kar sakte hain.\n\n"
+        "Neeche diye gaye button par click karein:"
     )
     await message.reply_text(welcome_text, reply_markup=keyboard)
-
-@bot.on_callback_query(filters.regex("^start_leech$"))
-async def leech_button_callback(client: Client, callback_query):
-    await callback_query.answer()
-    await callback_query.message.reply_text(
-        "📥 **Leech Mode Activated!**\n\n"
-        "Kripya apni generated **`.txt` file** ko is chat me document ki tarah bhej dein. Uske baad bot aapse Target Group ID puchega."
-    )
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
-    print("Bot is starting with Button Menu...")
+    print("Course Extractor Bot is starting...")
     bot.run()
-    
