@@ -144,15 +144,8 @@ async def resolve_api_and_app_name(bot: Client, m: Message, editable: Message, r
         await editable.edit("**No matches found! Enter Correct App Starting Word ❌**")
         return None, None
 
-    # Safe length check to avoid MESSAGE_TOO_LONG
-    if len(matches) > 35:
-        matches = matches[:35]
-        truncated_note = "\n\n⚠️ *Too many matches, showing first 35.*"
-    else:
-        truncated_note = ""
-
     text = "".join(f"<blockquote>**{cnt + 1}.** `{item['name']}:{item['api']}`</blockquote>\n" for cnt, item in enumerate(matches))
-    selection_text = await prompt_user(bot, m, editable, f"**Select Index Number Of App API:**\n\n{text}{truncated_note}", user_id)
+    selection_text = await prompt_user(bot, m, editable, f"**Select Index Number Of App API:**\n\n{text}", user_id)
 
     if selection_text.isdigit() and 1 <= int(selection_text) <= len(matches):
         selected_item = matches[int(selection_text) - 1]
@@ -314,20 +307,11 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 await editable.edit("**Did not find any course! ❌**")
                 return
 
-            # Safe length check to avoid MESSAGE_TOO_LONG for courses list
-            total_courses = len(courses)
-            if total_courses > 35:
-                courses_display = courses[:35]
-                truncated_note = f"\n\n⚠️ *Showing first 35 courses out of {total_courses}.*"
-            else:
-                courses_display = courses
-                truncated_note = ""
+            text = "".join(f"<blockquote>**{cnt + 1}.** `{c.get('course_name', 'Course')} 💵₹{c.get('price', '0')}`</blockquote>\n" for cnt, c in enumerate(courses))
+            selection_course = await prompt_user(bot, m, editable, f"**Send index number of the course:**\n\n{text}", user_id)
 
-            text = "".join(f"<blockquote>**{cnt + 1}.** `{c.get('course_name', 'Course')} 💵₹{c.get('price', '0')}`</blockquote>\n" for cnt, c in enumerate(courses_display))
-            selection_course = await prompt_user(bot, m, editable, f"**Send index number of the course:**\n\n{text}{truncated_note}", user_id)
-
-            if selection_course.isdigit() and 1 <= int(selection_course) <= len(courses_display):
-                course = courses_display[int(selection_course) - 1]
+            if selection_course.isdigit() and 1 <= int(selection_course) <= len(courses):
+                course = courses[int(selection_course) - 1]
                 selected_batch_id, selected_batch_name = course['id'], course.get('course_name', 'Batch')
                 clean_file_name = f"{user_id}_{selected_batch_name.replace('/', '-')[:200]}"
             else:
