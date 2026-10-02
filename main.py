@@ -2,10 +2,10 @@ import os
 import asyncio
 import logging
 from aiohttp import web
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram import Client
 
 from three import register_appxwp_handlers
+from leech import register_leech_handlers
 
 logging.basicConfig(level=logging.INFO)
 
@@ -32,25 +32,11 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# Register only Course Extractor handlers
 register_appxwp_handlers(bot)
-
-# Start Menu with Only Course Extractor Button
-@bot.on_message(filters.command("start") & filters.private)
-async def start_command(client: Client, message: Message):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📂 Extract Course (Classx/Appx)", callback_data="appxwp")]
-    ])
-    
-    welcome_text = (
-        "👋 **Welcome to Nanex Course Extractor Bot!**\n\n"
-        "Aap is bot ke madhyam se Classx aur Appx courses ko asani se extract kar sakte hain.\n\n"
-        "Neeche diye gaye button par click karein:"
-    )
-    await message.reply_text(welcome_text, reply_markup=keyboard)
+register_leech_handlers(bot)
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(start_web_server())
-    print("Course Extractor Bot is starting...")
+    print("Bot is starting...")
     bot.run()
