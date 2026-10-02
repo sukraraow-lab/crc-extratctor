@@ -6,12 +6,16 @@ import yt_dlp
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pyrogram import Client, filters
 
-# --- 1. DUMMY WEB SERVER FOR RENDER PORT 8080 ---
+# --- 1. DUMMY WEB SERVER FOR RENDER PORT 8080 (WITH HEAD METHOD SUPPORT) ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot is running and alive!")
+        
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
 def run_web_server():
     port = int(os.getenv("PORT", 8080))
