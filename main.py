@@ -41,34 +41,47 @@ app = Client(
 )
 
 
-# --- 3. COURSE EXTRACTOR SYSTEM (Yahan aapka extractor logic rahega) ---
+# --- 3. BULLETPROOF URL CLEANING & EXTRACTION ---
+def extract_clean_url(text):
+    """
+    Yeh function text ya line me chahe kitna bhi bada title ho, 
+    use hata kar sirf 'https://' ya 'http://' se shuru hone wala valid URL nikal leta hai.
+    """
+    text = text.strip()
+    url = None
+    
+    if "https://" in text:
+        url = "https://" + text.split("https://")[-1].strip()
+    elif "http://" in text:
+        url = "http://" + text.split("http://")[-1].strip()
+        
+    if url:
+        # Agar URL ke baad koi extra space ya text hai, toh sirf URL ka pehla hissa lein
+        url = url.split(" ")[0]
+        # PDF links ko skip karne ke liye
+        if ".pdf" in url.lower():
+            return None
+        return url
+        
+    return None
+
 def extract_course_links(input_data):
-    """
-    Yahan aap apne course extractor (ClassX/AppX/API parsing) ka logic likh sakte hain.
-    Filhaal yeh function text ya .txt file ke links ko clean karke return karta hai.
-    """
     links = []
-    # Agar input ek file path hai (.txt)
     if os.path.exists(input_data) and input_data.endswith(".txt"):
         with open(input_data, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    url_match = re.search(r'https?://[^\s]+', line)
-                    if url_match:
-                        clean_url = url_match.group(0)
-                        if ".pdf" not in clean_url.lower():
-                            links.append(clean_url)
+                    clean_url = extract_clean_url(line)
+                    if clean_url:
+                        links.append(clean_url)
     else:
         # Agar koi single text message ya URL hai
-        url_match = re.search(r'https?://[^\s]+', input_data)
-        if url_match:
-            clean_url = url_match.group(0)
-            if ".pdf" not in clean_url.lower():
-                links.append(clean_url)
+        clean_url = extract_clean_url(input_data)
+        if clean_url:
+            links.append(clean_url)
                 
     return links
-
 
 # --- 4. DOWNLOAD, UPLOAD & ERROR REPORTING FUNCTION ---
 async def process_single_link(client, link, target_channel):
