@@ -125,12 +125,12 @@ async def process_single_link(client, link, target_channel):
         print(f"--------------------------------------------------\n")
 
 
-# --- 5. TELEGRAM BOT HANDLERS ---
-@app.on_message(filters.command("start"))
+# --- 5. TELEGRAM BOT HANDLERS (Updated with filters.me for Userbot) ---
+@app.on_message(filters.command("start") & (filters.incoming | filters.me))
 async def start_command(client, message):
     await message.reply("🤖 **Unified Extractor & Leech Bot is Online!**\nSend a `.txt` file containing links or a single link.")
 
-@app.on_message(filters.document)
+@app.on_message(filters.document & (filters.incoming | filters.me))
 async def document_handler(client, message):
     if message.document.file_name and message.document.file_name.endswith(".txt"):
         await message.reply("📂 Processing `.txt` file...")
@@ -148,7 +148,7 @@ async def document_handler(client, message):
             
         await message.reply("✅ **All links processed from the file!**")
 
-@app.on_message(filters.text & ~filters.command("start"))
+@app.on_message(filters.text & ~filters.command("start") & (filters.incoming | filters.me))
 async def text_link_handler(client, message):
     link = message.text.strip()
     if link.startswith("http"):
