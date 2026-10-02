@@ -4,11 +4,14 @@ import asyncio
 import yt_dlp
 from pyrogram import Client, filters
 
-# 1. Render Environment Variables se values uthana
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-SESSION_STRING = os.getenv("SESSION_STRING", "")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))  # Aapke target channel ki ID (-100xxxxxxxxx)
+# API credentials (Inhe aap env variable se ya direct rakh sakte hain)
+API_ID = int(33956574)
+API_HASH = "0bcd4b744ec2ab732c4135001e4e1299"
+
+# Apni session string ko seedha yahan double quotes ke andar daal dein:
+SESSION_STRING = "AQIGIt4Ah4GLfjgUwKzwRWmJEoxs49GR9tIhnFpsFvaG4rGT67Vwl6dmdajtWdha0vAjvMNwX3l8_RsMx9TFSJU6tKa58sfzusCe8bfLKfaMNoJXloIBr-doEB2aC9tAzjvfY5veQt_Y1IHcmSD-EDYmCnPQDsTOoPvDbteQQhkOBZyGeA_-gurAeMyM2JMWjjTuRWvayZOBuvA5DhHvt9YWRrcotG86eZeu-uXock7Bz0dz2Kq5PS8KxY9duDQTDrZtpjTqJ5LNXd96_UZI9lCdPP9T9t625PwGpr40mF7YgnwWV18AM5gFdHyJeh2OOwLdUicL8mTm8YLjWC7WtFixxlrGLgAAAAHLCvarAA"
+
+CHANNEL_ID = -1003869611917  # Aapke channel ki ID
 
 if not API_ID or not API_HASH or not SESSION_STRING or not CHANNEL_ID:
     print("❌ Error: Missing environment variables in Render!")
