@@ -8,10 +8,15 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyromod.exceptions import ListenerTimeout
 
-from config import auth_users
+try:
+    from config import auth_users
+except ImportError:
+    auth_users = []
 
 def is_authorized(user_id: int) -> bool:
-    return bool(auth_users and user_id in auth_users)
+    if not auth_users:
+        return True
+    return user_id in auth_users
 
 async def ask_user(bot: Client, m: Message, editable: Message, text: str, user_id: int, timeout: int = 120) -> Optional[str]:
     await editable.edit(text)
