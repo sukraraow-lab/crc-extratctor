@@ -31,7 +31,9 @@ threading.Thread(target=run_web_server, daemon=True).start()
 API_ID = 33956574
 API_HASH = "0bcd4b744ec2ab732c4135001e4e1299"
 SESSION_STRING = "AQIGIt4Ah4GLfjgUwKzwRWmJEoxs49GR9tIhnFpsFvaG4rGT67Vwl6dmdajtWdha0vAjvMNwX3l8_RsMx9TFSJU6tKa58sfzusCe8bfLKfaMNoJXloIBr-doEB2aC9tAzjvfY5veQt_Y1IHcmSD-EDYmCnPQDsTOoPvDbteQQhkOBZyGeA_-gurAeMyM2JMWjjTuRWvayZOBuvA5DhHvt9YWRrcotG86eZeu-uXock7Bz0dz2Kq5PS8KxY9duDQTDrZtpjTqJ5LNXd96_UZI9lCdPP9T9t625PwGpr40mF7YgnwWV18AM5gFdHyJeh2OOwLdUicL8mTm8YLjWC7WtFixxlrGLgAAAAHLCvarAA"
-CHANNEL_ID = -1003869611917  # Aapke target channel ki ID
+
+# Test karne ke liye filhal 'me' (Saved Messages) rakha hai, baad me apna channel ID daal sakte hain
+CHANNEL_ID = "me"  
 
 app = Client(
     "unified_leech_bot",
@@ -41,49 +43,41 @@ app = Client(
 )
 
 
-# --- 3. BULLETPROOF URL CLEANING & EXTRACTION ---
-def extract_clean_url(text):
+# ==========================================================
+# --- 3. COURSE EXTRACTOR SYSTEM (Yahan apna extractor rakhein) ---
+# ==========================================================
+def extract_course_links(raw_input):
     """
-    Yeh function text ya line me chahe kitna bhi bada title ho, 
-    use hata kar sirf 'https://' ya 'http://' se shuru hone wala valid URL nikal leta hai.
+    Yahan aap apne course extractor ka logic likh sakte hain.
+    Yeh function raw text ya file se links filter karke list return karega.
     """
-    text = text.strip()
-    url = None
-    
-    if "https://" in text:
-        url = "https://" + text.split("https://")[-1].strip()
-    elif "http://" in text:
-        url = "http://" + text.split("http://")[-1].strip()
-        
-    if url:
-        # Agar URL ke baad koi extra space ya text hai, toh sirf URL ka pehla hissa lein
-        url = url.split(" ")[0]
-        # PDF links ko skip karne ke liye
-        if ".pdf" in url.lower():
-            return None
-        return url
-        
-    return None
-
-def extract_course_links(input_data):
     links = []
-    if os.path.exists(input_data) and input_data.endswith(".txt"):
-        with open(input_data, "r", encoding="utf-8") as f:
+    
+    # Agar input ek file path hai (.txt)
+    if os.path.exists(str(raw_input)) and str(raw_input).endswith(".txt"):
+        with open(raw_input, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    clean_url = extract_clean_url(line)
-                    if clean_url:
-                        links.append(clean_url)
+                    # URL cleaning (Title aur extra text hatane ke liye)
+                    url_match = re.search(r'https?://[^\s]+', line)
+                    if url_match:
+                        clean_url = url_match.group(0).split(" ")[0]
+                        # PDF links ko skip karna
+                        if ".pdf" not in clean_url.lower():
+                            links.append(clean_url)
     else:
-        # Agar koi single text message ya URL hai
-        clean_url = extract_clean_url(input_data)
-        if clean_url:
-            links.append(clean_url)
+        # Agar koi single text message ya direct link hai
+        url_match = re.search(r'https?://[^\s]+', str(raw_input))
+        if url_match:
+            clean_url = url_match.group(0).split(" ")[0]
+            if ".pdf" not in clean_url.lower():
+                links.append(clean_url)
                 
     return links
 
-# --- 4. DOWNLOAD, UPLOAD & ERROR REPORTING FUNCTION ---
+
+# --- 4. DOWNLOAD & UPLOAD LOGIC (yt-dlp + Pyrogram) ---
 async def process_single_link(client, link, target_channel):
     file_path = None
     try:
@@ -114,8 +108,8 @@ async def process_single_link(client, link, target_channel):
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         print(f"✅ Download Successful! Size: {file_size_mb:.2f} MB")
 
-        print("🚀 Uploading to Telegram channel...")
-        caption = f"📥 **Downloaded via Unified Bot**\n🔗 `{link}`"
+        print("🚀 Uploading to Telegram...")
+        caption = f"📥 **Downloaded via Course Bot**\n🔗 `{link}`"
         
         await client.send_video(
             chat_id=target_channel,
@@ -129,10 +123,9 @@ async def process_single_link(client, link, target_channel):
         error_msg = str(e)
         print(f"\n❌ [FAILED] Task failed for link: {link}")
         print(f"🔴 Error: {error_msg}")
-        traceback.print_exc()
         
         try:
-            error_text = f"❌ **Leech Failed!**\n\n🔗 **Link:** `{link}`\n🔴 **Error:** `{error_msg[:300]}`"
+            error_text = f"❌ **Leech Failed!**\n\n🔗 **Link:** `{link}`\n🔴 **Error:** `{error_msg[:200]}`"
             await client.send_message(chat_id=target_channel, text=error_text)
         except Exception as tg_err:
             print(f"⚠️ Could not send error to channel: {tg_err}")
@@ -143,21 +136,22 @@ async def process_single_link(client, link, target_channel):
                 os.remove(file_path)
                 print(f"🧹 Cleaned up local file: {file_path}")
             except Exception as cleanup_err:
-                print(f"⚠️ Cleanup warning: {cleanup_err}")
+                print(f"⚠️️ Cleanup warning: {cleanup_err}")
         print(f"--------------------------------------------------\n")
 
 
-# --- 5. TELEGRAM HANDLERS (Userbot & Incoming Support) ---
+# --- 5. TELEGRAM HANDLERS ---
 @app.on_message(filters.command("start") & (filters.incoming | filters.me))
 async def start_command(client, message):
-    await message.reply("🤖 **Unified Course Extractor & Leech Bot is Online!**\nSend a `.txt` file or course link.")
+    await message.reply("🤖 **Course Extractor & Leech Bot is Online!**\nSend a `.txt` file or course link.")
 
 @app.on_message(filters.document & (filters.incoming | filters.me))
 async def document_handler(client, message):
     if message.document.file_name and message.document.file_name.endswith(".txt"):
-        await message.reply("📂 Processing `.txt` file via Extractor...")
+        await message.reply("📂 Processing `.txt` file through Extractor...")
         downloaded_txt = await message.download()
         
+        # Extractor function call
         links = extract_course_links(downloaded_txt)
         os.remove(downloaded_txt)
         
