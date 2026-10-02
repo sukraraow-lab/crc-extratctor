@@ -1,56 +1,157 @@
-import os
-import asyncio
 import logging
-from aiohttp import web
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+import os
+import threading
 
+from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyromod import listen
+
+from config import api_id, api_hash, bot_token
+from one import register_pwwp_handlers
+from two import register_cpwp_handlers
 from three import register_appxwp_handlers
 
-logging.basicConfig(level=logging.INFO)
 
-async def handle(request):
-    return web.Response(text="Bot is running successfully!")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-
-bot = Client(
-    "nanex_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
+# --- LOGGING ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Register only Course Extractor handlers
+
+# --- WEB HEALTH CHECK SERVER ---
+def run_web():
+    port = int(os.environ.get("PORT", 8080))
+
+    try:
+        from flask import Flask
+
+        app = Flask(__name__)
+
+        @app.route("/")
+        def health():
+            return "Bot running", 200
+
+        app.run(
+            host="0.0.0.0",
+            port=port
+        )
+
+    except Exception:
+        import http.server
+        import socketserver
+
+        handler = http.server.SimpleHTTPRequestHandler
+
+        with socketserver.TCPServer(
+            ("", port),
+            handler
+        ) as httpd:
+            httpd.serve_forever()
+
+
+# Start health-check server
+threading.Thread(
+    target=run_web,
+    daemon=True
+).start()
+
+
+# --- BOT CLIENT ---
+bot = Client(
+    "techvjbot",
+    api_id=api_id,
+    api_hash=api_hash,
+    bot_token=bot_token
+)
+
+
+# =========================================================
+# START MENU
+# =========================================================
+
+START_IMAGE = "https://files.catbox.moe/vg3vae.jpg"
+
+START_CAPTION = (
+    "<blockquote>\n"
+    "╭━━━ ✦ <b>Zx Extractor</b> ✦ ━━━╮\n\n"
+    "⚡ <b>Your Content. One Extractor.</b>\n"
+    "🔐 <b>Smart • Reliable • Efficient</b>\n"
+    "📚 <b>PW • Classplus • Appx</b>\n\n"
+    "<i>Select a platform to begin...</i>\n"
+    "╰━━━━━━━━━━━━━━━━━━━━╯\n"
+    "</blockquote>"
+)
+
+
+START_KEYBOARD = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton(
+            "👨‍💻 𝗗𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿 🇮🇳",
+            url="https://t.me/SumitTripathi"
+        )
+    ],
+    [
+        InlineKeyboardButton(
+            "🚀 𝗣𝗵𝘆𝘀𝗶𝗰𝘀 𝗪𝗮𝗹𝗹𝗮𝗵 🚀",
+            callback_data="pwwp"
+        )
+    ],
+    [
+        InlineKeyboardButton(
+            "📘 𝗖𝗹𝗮𝘀𝘀𝗽𝗹𝘂𝘀 📘",
+            callback_data="cpwp"
+        )
+    ],
+    [
+        InlineKeyboardButton(
+            "📒 𝗔𝗽𝗽𝘅 📒",
+            callback_data="appxwp"
+        )
+    ]
+])
+
+
+# =========================================================
+# /START
+# =========================================================
+
+@bot.on_message(filters.command(["start"]))
+async def start(bot: Client, message: Message):
+    await message.reply_photo(
+        photo=START_IMAGE,
+        caption=START_CAPTION,
+        reply_markup=START_KEYBOARD,
+        parse_mode=ParseMode.HTML
+    )
+
+
+# =========================================================
+# /HELP
+# =========================================================
+
+@bot.on_message(filters.command(["help"]))
+async def help(bot: Client, message: Message):
+    await message.reply_text(
+        "✦ <b>Zx Extractor</b>\n\n"
+        "Use /start to open the extractor menu.",
+        parse_mode=ParseMode.HTML
+    )
+
+
+# =========================================================
+# REGISTER EXTRACTOR HANDLERS
+# =========================================================
+
+register_pwwp_handlers(bot)
+register_cpwp_handlers(bot)
 register_appxwp_handlers(bot)
 
-# Start Menu with Only Course Extractor Button
-@bot.on_message(filters.command("start") & filters.private)
-async def start_command(client: Client, message: Message):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📂 Extract Course (Classx/Appx)", callback_data="appxwp")]
-    ])
-    
-    welcome_text = (
-        "👋 **Welcome to Nanex Course Extractor Bot!**\n\n"
-        "Aap is bot ke madhyam se Classx aur Appx courses ko asani se extract kar sakte hain.\n\n"
-        "Neeche diye gaye button par click karein:"
-    )
-    await message.reply_text(welcome_text, reply_markup=keyboard)
+
+# =========================================================
+# RUN BOT
+# =========================================================
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(start_web_server())
-    print("Course Extractor Bot is starting...")
     bot.run()
