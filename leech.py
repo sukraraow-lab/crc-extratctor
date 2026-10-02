@@ -254,3 +254,37 @@ def register_leech_handlers(bot: Client):
             await callback_query.answer("⏹️ Leech process stopped!")
         else:
             await callback_query.answer("No active leech task found.", show_alert=True)
+            import os
+import traceback
+
+async def process_leech(app, link, channel_id):
+    file_path = None
+    try:
+        print(f"\n🔄 Processing link: {link}")
+        
+        # --- yt-dlp download logic yahan aayega ---
+        # Maan lijiye download hokar file 'video.mp4' me save hui
+        file_path = "video.mp4" 
+        
+        if not file_path or not os.path.exists(file_path):
+            raise Exception("Download fail ho gaya ya file nahi mili!")
+            
+        # --- Telegram par upload karne ka code ---
+        await app.send_video(chat_id=channel_id, video=file_path)
+        print("✅ Upload Successful!")
+
+    except Exception as e:
+        error_text = f"❌ **Leech Failed!**\n\n🔗 **Link:** `{link}`\n🔴 **Error:** `{str(e)[:300]}`"
+        print(error_text)
+        traceback.print_exc()
+        
+        # Agar error aaye toh channel par bhej do
+        try:
+            await app.send_message(chat_id=channel_id, text=error_text)
+        except Exception as tg_err:
+            print(f"Telegram error message failed: {tg_err}")
+            
+    finally:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            print("🧹 Cleaned up local file.")
