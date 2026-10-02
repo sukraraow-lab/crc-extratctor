@@ -12,15 +12,11 @@ from pyrogram.types import Message
 
 from helpers import appx_decrypt, ask_user, is_authorized
 
-
-# Throttle API requests to prevent Appx rate-limiting / silent HTTP failures
 SEMAPHORE = asyncio.Semaphore(15)
-
 
 class ProcessCancelledException(Exception):
     """Custom exception raised when a process is cancelled by the user."""
     pass
-
 
 def format_time(seconds: float) -> str:
     """Format seconds into a human-readable HH:MM:SS or MM:SS string."""
@@ -30,7 +26,6 @@ def format_time(seconds: float) -> str:
     if hrs > 0:
         return f"{hrs:02d}h {mins:02d}m {secs:02d}s"
     return f"{mins:02d}m {secs:02d}s"
-
 
 async def prompt_user(bot: Client, message: Message, editable: Message, text: str, user_id: int) -> str:
     """Helper wrapper to ask user input with built-in /cancel check."""
@@ -44,7 +39,6 @@ async def prompt_user(bot: Client, message: Message, editable: Message, text: st
         raise ProcessCancelledException("User requested cancellation.")
     
     return response.strip()
-
 
 async def update_status_card(editable: Message, task_name: str, current: int, total: int, start_time: float, activity: str):
     """Formats and updates a progress tracking message card."""
@@ -75,7 +69,6 @@ async def update_status_card(editable: Message, task_name: str, current: int, to
         await editable.edit(status_text)
     except Exception:
         pass
-
 
 async def fetch_appx_html_to_json(session: aiohttp.ClientSession, url: str, headers: Dict = None, data: Any = None) -> Any:
     async with SEMAPHORE:
@@ -118,7 +111,6 @@ async def fetch_appx_html_to_json(session: aiohttp.ClientSession, url: str, head
                 await asyncio.sleep(1.5 ** attempt)
         return None
 
-
 def extract_user_id_from_jwt(token: str) -> str:
     try:
         parts = token.split(".")
@@ -130,7 +122,6 @@ def extract_user_id_from_jwt(token: str) -> str:
     except Exception as e:
         logging.warning(f"Failed to parse user-id from token: {e}")
     return "0"
-
 
 def find_appx_matching_apis(search_api: List[str], appxapis_file="threeapis.json") -> List[Dict]:
     matched_apis = []
@@ -156,7 +147,6 @@ def find_appx_matching_apis(search_api: List[str], appxapis_file="threeapis.json
 
     return unique_apis
 
-
 async def resolve_api_and_app_name(bot: Client, m: Message, editable: Message, raw_input_text: str, user_id: int):
     raw_input_text = raw_input_text.strip()
     
@@ -172,7 +162,6 @@ async def resolve_api_and_app_name(bot: Client, m: Message, editable: Message, r
         await editable.edit("**No matches found! Enter Correct App Starting Word ❌**")
         return None, None
 
-    # Safe length check to avoid MESSAGE_TOO_LONG
     if len(matches) > 35:
         matches = matches[:35]
         truncated_note = "\n\n⚠️ *Too many matches, showing first 35.*"
@@ -192,9 +181,7 @@ async def resolve_api_and_app_name(bot: Client, m: Message, editable: Message, r
         await editable.edit("**Error: Wrong Index Number ❌**")
         return None, None
 
-
 async def login_appx_user(session: aiohttp.ClientSession, bot: Client, m: Message, editable: Message, user_id: int):
-    """Handles credentials login flow, sends extracted token to user, and returns api, token, app_name."""
     app_input = await prompt_user(bot, m, editable, "**Enter App Name or API URL to login:**", user_id)
     api, app_name = await resolve_api_and_app_name(bot, m, editable, app_input, user_id)
     if not api or not app_name:
@@ -242,7 +229,6 @@ async def login_appx_user(session: aiohttp.ClientSession, bot: Client, m: Messag
     await bot.send_message(chat_id=m.chat.id, text=token_msg)
 
     return api, token, app_name
-
 
 async def fetch_appx_video_id_details_v2(session: aiohttp.ClientSession, api: str, selected_batch_id: str, video_id: str, ytFlag: str, headers: Dict, folder_wise_course: Any, user_id: int) -> List[str]:
     try:
@@ -319,7 +305,6 @@ async def fetch_appx_video_id_details_v2(session: aiohttp.ClientSession, api: st
     except Exception as e:
         return [f"User ID: {user_id} - Error fetching details for Course_id : {selected_batch_id}, video ID {video_id}: {str(e)}\n"]
 
-
 async def fetch_appx_folder_contents_v2(session: aiohttp.ClientSession, api: str, selected_batch_id: str, folder_id: str, headers: Dict, folder_wise_course: Any, user_id: int) -> List[str]:
     try:
         res = await fetch_appx_html_to_json(session, f"{api}/get/folder_contentsv2?course_id={selected_batch_id}&parent_id={folder_id}", headers)
@@ -343,7 +328,6 @@ async def fetch_appx_folder_contents_v2(session: aiohttp.ClientSession, api: str
         return output
     except Exception as e:
         return [f"User ID: {user_id} - Error fetching folder contents: {e}\n"]
-
 
 async def fetch_appx_video_id_details_v3(session: aiohttp.ClientSession, api: str, selected_batch_id: str, video_id: str, ytFlag: str, headers: Dict, user_id: int) -> List[str]:
     try:
@@ -430,7 +414,6 @@ async def fetch_appx_video_id_details_v3(session: aiohttp.ClientSession, api: st
     except Exception as e:
         return [f"User ID: {user_id} - Error fetching details V3 for course {selected_batch_id}, video {video_id}: {str(e)}\n"]
 
-
 async def process_folder_wise_course_0(session: aiohttp.ClientSession, api: str, selected_batch_id: str, headers: Dict, user_id: int) -> List[str]:
     res = await fetch_appx_html_to_json(session, f"{api}/get/allsubjectfrmlivecourseclass?courseid={selected_batch_id}&start=-1", headers)
     all_outputs, tasks = [], []
@@ -505,7 +488,6 @@ async def process_folder_wise_course_0(session: aiohttp.ClientSession, api: str,
 
     return all_outputs
 
-
 async def process_folder_wise_course_1(session: aiohttp.ClientSession, api: str, selected_batch_id: str, headers: Dict, user_id: int) -> List[str]:
     res = await fetch_appx_html_to_json(session, f"{api}/get/folder_contentsv2?course_id={selected_batch_id}&parent_id=-1", headers)
     all_outputs, tasks = [], []
@@ -572,7 +554,6 @@ async def process_folder_wise_course_1(session: aiohttp.ClientSession, api: str,
             all_outputs.extend(res)
 
     return all_outputs
-
 
 async def process_appxwp(bot: Client, m: Message, user_id: int):
     editable = await m.reply_text("**Wait initializing process... ⏳**")
@@ -663,7 +644,9 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                 try:
                     with open(course_details_file, 'rb') as f:
                         await m.reply_document(document=f, caption=caption, file_name="course_details.txt")
+                    
                     await editable.delete()
+                    editable = await m.reply_text("📂 **Course list sent above as document. Send index number here:**")
                 finally:
                     if os.path.exists(course_details_file):
                         os.remove(course_details_file)
@@ -763,7 +746,6 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
                     os.remove(f_path)
                 except Exception:
                     pass
-
 
 def register_appxwp_handlers(bot: Client):
     @bot.on_callback_query(filters.regex("^appxwp$"))
