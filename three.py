@@ -311,11 +311,18 @@ async def fetch_appx_folder_contents_v2(session: aiohttp.ClientSession, api: str
         tasks, output = [], []
         if res and "data" in res:
             for item in res["data"]:
-                video_id = item.get("id")
-                ytFlag = item.get("ytFlag")
-                if item.get("material_type") == "VIDEO":
+                video_id = item.get("id") or item.get("_id")
+                ytFlag = item.get("ytFlag", "0")
+                Title = item.get("Title") or item.get("title") or item.get("name") or "Item"
+                material_type = str(item.get("material_type") or item.get("type") or "").upper()
+
+                if material_type == "VIDEO":
                     tasks.append(fetch_appx_video_id_details_v2(session, api, selected_batch_id, video_id, ytFlag, headers, folder_wise_course, user_id))
-                elif item.get("material_type") == "FOLDER":
+                elif material_type in ("PDF", "TEST"):
+                    pdf_link = appx_decrypt(item.get("pdf_link", "")) if item.get("pdf_link") else None
+                    if pdf_link:
+                        output.append(f"{Title}:{pdf_link}\n")
+                elif material_type == "FOLDER" or not material_type:
                     tasks.append(fetch_appx_folder_contents_v2(session, api, selected_batch_id, video_id, headers, folder_wise_course, user_id))
 
         if tasks:
@@ -489,16 +496,21 @@ async def process_folder_wise_course_0(session: aiohttp.ClientSession, api: str,
     return all_outputs
 
 async def process_folder_wise_course_1(session: aiohttp.ClientSession, api: str, selected_batch_id: str, headers: Dict, user_id: int) -> List[str]:
+    # Try parent_id=-1 first, if empty try parent_id=0 for Classx/Appx compatibility
     res = await fetch_appx_html_to_json(session, f"{api}/get/folder_contentsv2?course_id={selected_batch_id}&parent_id=-1", headers)
+    if not res or not res.get("data"):
+        res = await fetch_appx_html_to_json(session, f"{api}/get/folder_contentsv2?course_id={selected_batch_id}&parent_id=0", headers)
+
     all_outputs, tasks = [], []
     
     if res and "data" in res:
         for item in res["data"]:
-            Title = item.get("Title")
-            video_id = item.get("id")
-            ytFlag = item.get("ytFlag")
+            Title = item.get("Title") or item.get("title") or item.get("name") or "Item"
+            video_id = item.get("id") or item.get("_id")
+            ytFlag = item.get("ytFlag", "0")
+            material_type = str(item.get("material_type") or item.get("type") or "").upper()
             
-            if item.get("material_type") in ("PDF", "TEST"):
+            if material_type in ("PDF", "TEST"):
                 pdf_link = appx_decrypt(item.get("pdf_link", "")) if item.get("pdf_link", "") and appx_decrypt(item.get("pdf_link", "")).endswith(".pdf") else None
                 if pdf_link:
                     if str(item.get("is_pdf_encrypted")) == "1":
@@ -515,12 +527,12 @@ async def process_folder_wise_course_1(session: aiohttp.ClientSession, api: str,
                     else:
                         all_outputs.append(f"{Title}:{pdf_link2}\n")
 
-            elif item.get("material_type") == "IMAGE":
-                thumbnail = item.get("thumbnail")
+            elif material_type == "IMAGE":
+                thumbnail = item.get("thumbnail") or item.get("imageUrl")
                 if thumbnail:
                     all_outputs.append(f"{Title}:{thumbnail}\n")
                    
-            elif item.get("material_type") == "VIDEO":
+            elif material_type == "VIDEO":
                 direct_video_url = (
                     item.get('video_url') or item.get('videoUrl') or item.get('hls_url')
                     or item.get('hlsUrl') or item.get('stream_url') or item.get('streamUrl')
@@ -545,8 +557,8 @@ async def process_folder_wise_course_1(session: aiohttp.ClientSession, api: str,
                 else:
                     tasks.append(fetch_appx_video_id_details_v2(session, api, selected_batch_id, video_id, ytFlag, headers, 1, user_id))
 
-            elif item.get("material_type") == "FOLDER":
-                tasks.append(fetch_appx_folder_contents_v2(session, api, selected_batch_id, item.get("id"), headers, 1, user_id))
+            elif material_type == "FOLDER" or not material_type:
+                tasks.append(fetch_appx_folder_contents_v2(session, api, selected_batch_id, video_id, headers, 1, user_id))
 
     if tasks:
         results = await asyncio.gather(*tasks)
@@ -685,19 +697,13 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
 
             all_outputs = []
 
-            if folder_wise_course == 0:
-                await update_status_card(editable, f"Extracting: {selected_batch_name}", 20, 100, start_time, "Extracting live/subject course items...")
+            # Always try folder structure first for Classx apps, then live course items if needed
+            await update_status_card(editable, f"Extracting: {selected_batch_name}", 20, 100, start_time, "Extracting folder contents...")
+            all_outputs = await process_folder_wise_course_1(session, api, selected_batch_id, extraction_headers, user_id)
+            
+            if not all_outputs:
+                await update_status_card(editable, f"Extracting: {selected_batch_name}", 40, 100, start_time, "Extracting live/subject course items...")
                 all_outputs = await process_folder_wise_course_0(session, api, selected_batch_id, extraction_headers, user_id)
-            elif folder_wise_course == 1:
-                await update_status_card(editable, f"Extracting: {selected_batch_name}", 20, 100, start_time, "Extracting folder-wise structure...")
-                all_outputs = await process_folder_wise_course_1(session, api, selected_batch_id, extraction_headers, user_id)
-            else:
-                await update_status_card(editable, f"Extracting: {selected_batch_name}", 10, 100, start_time, "Extracting method 1...")
-                outputs_0 = await process_folder_wise_course_0(session, api, selected_batch_id, extraction_headers, user_id)
-                all_outputs.extend(outputs_0)
-                await update_status_card(editable, f"Extracting: {selected_batch_name}", 50, 100, start_time, "Extracting method 2...")
-                outputs_1 = await process_folder_wise_course_1(session, api, selected_batch_id, extraction_headers, user_id)
-                all_outputs.extend(outputs_1)
 
             if all_outputs:
                 output_txt_path = f"{clean_file_name}.txt"
