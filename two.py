@@ -496,6 +496,9 @@ async def process_cpwp(bot: Client, m: Message, user_id: int):
 def register_cpwp_handlers(bot: Client):
     @bot.on_callback_query(filters.regex("^cpwp$"))
     async def cpwp_callback(client: Client, callback_query):
-        user_id = callback_query.from_user.id
+        user_id = callback_query.from_user.id if callback_query.from_user else 0
+        if not is_authorized(user_id):
+            await callback_query.answer("⛔ Access Denied! You are not authorized.", show_alert=True)
+            return
         await callback_query.answer()
         asyncio.create_task(process_cpwp(client, callback_query.message, user_id))

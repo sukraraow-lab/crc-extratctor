@@ -19,25 +19,38 @@ def is_authorized(user_id: int) -> bool:
     return user_id in auth_users
 
 async def ask_user(bot: Client, m: Message, editable: Message, text: str, user_id: int, timeout: int = 120) -> Optional[str]:
-    await editable.edit(text)
+    try:
+        await editable.edit(text)
+    except Exception:
+        pass
     try:
         msg = await bot.listen(chat_id=m.chat.id, filters=filters.user(user_id), timeout=timeout)
         val = (msg.text or "").strip()
         try:
-            await msg.delete(True)
+            await msg.delete()
         except Exception:
             pass
         return val
     except ListenerTimeout:
-        await editable.edit("**Timeout! You took too long to respond.**")
+        try:
+            await editable.edit("**Timeout! You took too long to respond.**")
+        except Exception:
+            pass
         return None
     except Exception as e:
         logging.exception("Error during input listener:")
-        await editable.edit(f"**Error:** `{e}`")
+        try:
+            await editable.edit(f"**Error:** `{e}`")
+        except Exception:
+            pass
         return None
 
 def extract_url_from_video_details(item: Dict) -> str:
+    if not isinstance(item, dict):
+        return ""
     v_details = item.get("videoDetails") or {}
+    if not isinstance(v_details, dict):
+        v_details = {}
     url = (
         v_details.get("videoUrl") or v_details.get("embedCode") or v_details.get("mediaUrl") or
         v_details.get("streamUrl") or v_details.get("hlsUrl") or v_details.get("mpdUrl") or
@@ -51,18 +64,20 @@ def extract_url_from_video_details(item: Dict) -> str:
             return match.group(1)
         match_any = re.search(r'https?://[^"\'\s<>]+', url)
         return match_any.group(0) if match_any else url
-    return url
+    return str(url).strip()
 
 def appx_decrypt(enc: str) -> str:
     if not enc:
         return ""
     try:
-        enc_bytes = b64decode(enc.split(":")[0])
-        if not enc_bytes:
+        cleaned_enc = enc.split(":")[0]
+        enc_bytes = b64decode(cleaned_enc)
+        if not enc_bytes or len(enc_bytes) % 16 != 0:
             return ""
         key = b"638udh3829162018"
         iv = b"fedcba9876543210"
         cipher = AES.new(key, AES.MODE_CBC, iv)
-        return unpad(cipher.decrypt(enc_bytes), AES.block_size).decode("utf-8")
+        decrypted = cipher.decrypt(enc_bytes)
+        return unpad(decrypted, AES.block_size).decode("utf-8")
     except Exception:
         return ""

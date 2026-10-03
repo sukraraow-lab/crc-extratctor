@@ -123,27 +123,44 @@ def extract_user_id_from_jwt(token: str) -> str:
         logging.warning(f"Failed to parse user-id from token: {e}")
     return "0"
 
-def find_appx_matching_apis(search_api: List[str], appxapis_file="threeapis.json") -> List[Dict]:
+def find_appx_matching_apis(search_api: List[str], appxapis_file=None) -> List[Dict]:
     matched_apis = []
-    try:
-        with open(appxapis_file, 'r') as f:
-            api_data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logging.error(f"Error reading appxapis file: {e}")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        appxapis_file,
+        os.path.join(base_dir, "threeapis.json"),
+        os.path.join(base_dir, "appxapis.json"),
+        "threeapis.json",
+        "appxapis.json"
+    ]
+    api_data = []
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            try:
+                with open(candidate, 'r', encoding='utf-8') as f:
+                    api_data = json.load(f)
+                    if api_data:
+                        break
+            except Exception as e:
+                logging.error(f"Error reading appxapis file {candidate}: {e}")
+
+    if not api_data:
+        logging.error("No valid appxapis JSON database found.")
         return matched_apis
 
     for item in api_data:
         for term in search_api:
             term = term.strip().lower()
-            if term in item["name"].lower() or term in item["api"].lower():
+            if term in item.get("name", "").lower() or term in item.get("api", "").lower():
                 matched_apis.append(item)
 
     unique_apis = []
     seen_apis = set()
     for item in matched_apis:
-        if item["api"] not in seen_apis:
+        api_url = item.get("api")
+        if api_url and api_url not in seen_apis:
             unique_apis.append(item)
-            seen_apis.add(item["api"])
+            seen_apis.add(api_url)
 
     return unique_apis
 
@@ -756,6 +773,9 @@ async def process_appxwp(bot: Client, m: Message, user_id: int):
 def register_appxwp_handlers(bot: Client):
     @bot.on_callback_query(filters.regex("^appxwp$"))
     async def appxwp_callback(client: Client, callback_query):
-        user_id = callback_query.from_user.id
+        user_id = callback_query.from_user.id if callback_query.from_user else 0
+        if not is_authorized(user_id):
+            await callback_query.answer("⛔ Access Denied! You are not authorized.", show_alert=True)
+            return
         await callback_query.answer()
         asyncio.create_task(process_appxwp(client, callback_query.message, user_id))

@@ -1496,7 +1496,10 @@ def register_pwwp_handlers(bot: Client):
         callback_query
     ):
 
-        user_id = callback_query.from_user.id
+        user_id = callback_query.from_user.id if callback_query.from_user else 0
+        if not is_authorized(user_id):
+            await callback_query.answer("⛔ Access Denied! You are not authorized.", show_alert=True)
+            return
 
         await callback_query.answer()
 
