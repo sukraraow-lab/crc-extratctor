@@ -847,146 +847,94 @@ async def process_pwwp(
             # ---------------------------------
 
             if raw_input.isdigit() and len(raw_input) == 10:
+                await editable.edit("**Sending OTP to registered phone... ⏳**")
 
-                otp_payload = {
-                    **base_payload,
-                    "username": raw_input,
-                    "countryCode": "+91"
-                }
+                otp_sent = False
+                last_err = ""
+                otp_endpoints = [
+                    ("https://api.penpencil.co/v1/users/get-otp-secure?smsType=0", {**base_payload, "username": raw_input, "countryCode": "+91"}),
+                    ("https://api.penpencil.co/v3/oauth/get-otp", {**base_payload, "username": raw_input, "countryCode": "+91"}),
+                    ("https://api.penpencil.co/v1/users/get-otp", {**base_payload, "username": raw_input, "countryCode": "+91"}),
+                    ("https://api.penpencil.co/v2/users/get-otp", {**base_payload, "username": raw_input, "countryCode": "+91"})
+                ]
 
-                await editable.edit(
-                    "**Sending OTP to registered phone... ⏳**"
-                )
+                for url_otp, payload in otp_endpoints:
+                    try:
+                        async with session.post(url_otp, headers={**api_headers, "randomid": str(uuid.uuid4())}, json=payload) as resp:
+                            if resp.status in (200, 201):
+                                otp_sent = True
+                                break
+                            else:
+                                last_err = await resp.text()
+                    except Exception as e:
+                        last_err = str(e)
 
-                async with session.post(
-                    "https://api.penpencil.co/v1/users/get-otp-secure?smsType=0",
-                    headers={
-                        **api_headers,
-                        "randomid": str(uuid.uuid4())
-                    },
-                    json=otp_payload
-                ) as resp:
-
-                    if resp.status >= 400:
-
-                        error_text = await resp.text()
-
-                        logging.error(
-                            "PW OTP ERROR | status=%s | response=%s",
-                            resp.status,
-                            error_text[:1000]
-                        )
-
-                        await editable.edit(
-                            "**OTP Request Failed ❌**"
-                        )
-
-                        return
-
-                otp = await prompt_user(
-                    bot,
-                    m,
-                    editable,
-                    "**Enter OTP received on phone:**",
-                    user_id
-                )
-
-                if not otp.isdigit():
-
-                    await editable.edit(
-                        "**Invalid OTP format! ❌**"
-                    )
-
+                if not otp_sent:
+                    logging.error(f"PW OTP ERROR: {last_err}")
+                    await editable.edit(f"**OTP Request Failed ❌**\n`{last_err[:300]}`")
                     return
 
-                token_payload = {
-                    **base_payload,
-                    "client_id": "system-admin",
-                    "grant_type": "password",
-                    "latitude": 0,
-                    "longitude": 0,
-                    "username": raw_input,
-                    "otp": str(otp)
-                }
+                otp = await prompt_user(bot, m, editable, "**Enter OTP received on phone:**", user_id)
+                if not otp.isdigit():
+                    await editable.edit("**Invalid OTP format! ❌**")
+                    return
 
-                await editable.edit(
-                    "**Verifying OTP... ⏳**"
-                )
+                await editable.edit("**Verifying OTP... ⏳**")
 
-                async with session.post(
-                    "https://api.penpencil.co/v3/oauth/token",
-                    headers={
-                        **api_headers,
-                        "randomid": str(uuid.uuid4())
-                    },
-                    json=token_payload
-                ) as resp:
+                token_endpoints = [
+                    ("https://api.penpencil.co/v3/oauth/token", {
+                        "client_id": "5eb393ee95fab7468a79d189",
+                        "grant_type": "password",
+                        "organizationId": "5eb393ee95fab7468a79d189",
+                        "username": raw_input,
+                        "otp": str(otp).strip()
+                    }),
+                    ("https://api.penpencil.co/v3/oauth/token", {
+                        "client_id": "system-admin",
+                        "grant_type": "password",
+                        "organizationId": "5eb393ee95fab7468a79d189",
+                        "username": raw_input,
+                        "otp": str(otp).strip()
+                    }),
+                    ("https://api.penpencil.co/v2/users/verify-otp", {
+                        "username": raw_input,
+                        "otp": str(otp).strip(),
+                        "organizationId": "5eb393ee95fab7468a79d189"
+                    })
+                ]
 
-                    if resp.status >= 400:
-
-                        error_text = await resp.text()
-
-                        logging.error(
-                            "PW TOKEN ERROR | status=%s | response=%s",
-                            resp.status,
-                            error_text[:1000]
-                        )
-
-                        await editable.edit(
-                            "**Login Failed ❌**"
-                        )
-
-                        return
-
+                for url_tok, t_payload in token_endpoints:
                     try:
-                        res_data = await resp.json()
+                        async with session.post(url_tok, headers={**api_headers, "randomid": str(uuid.uuid4())}, json=t_payload) as resp:
+                            if resp.status in (200, 201):
+                                res_data = await resp.json()
+                                data_obj = res_data.get("data") if isinstance(res_data.get("data"), dict) else {}
+                                access_token = data_obj.get("access_token") or data_obj.get("token") or res_data.get("access_token") or res_data.get("token")
+                                if access_token:
+                                    break
                     except Exception:
-                        res_data = {}
+                        pass
 
-                    access_token = (
-                        res_data
-                        .get("data", {})
-                        .get("access_token")
-                    )
+                if not access_token:
+                    await editable.edit("**Login Failed ❌ Invalid OTP or response.**")
+                    return
 
-                    if not access_token:
-
-                        await editable.edit(
-                            "**Login Failed ❌ Invalid response.**"
-                        )
-
-                        return
-
-                await editable.edit(
-                    "**PW Login Successful ✅**\n"
-                    "Token generated."
-                )
+                await editable.edit(f"**PW Login Successful ✅**\n\n**Token:**\n`{access_token}`")
+                editable = await m.reply_text("**Wait processing your request... ⏳**")
 
             # ---------------------------------
             # TOKEN LOGIN
             # ---------------------------------
-
             else:
-
-                access_token = raw_input.strip()
-
+                access_token = raw_input.strip().strip('"').strip("'")
                 if access_token.lower().startswith("bearer "):
-
                     access_token = access_token[7:].strip()
 
             if not access_token:
-
-                await editable.edit(
-                    "**Invalid Access Token ❌**"
-                )
-
+                await editable.edit("**Invalid Access Token ❌**")
                 return
 
-            logging.info(
-                "PW AUTH READY | token_present=%s | token_length=%s",
-                bool(access_token),
-                len(access_token)
-            )
+            logging.info("PW AUTH READY | token_present=%s", bool(access_token))
 
             auth_headers = {
                 **api_headers,
@@ -1510,3 +1458,5 @@ def register_pwwp_handlers(bot: Client):
                 user_id
             )
         )
+
+process_pw = process_pwwp

@@ -273,50 +273,55 @@ async def process_cpwp(bot: Client, m: Message, user_id: int):
         try:
             editable = await m.reply_text("**Processing Classplus request... ⏳**")
 
-            org_code = await prompt_user(bot, m, editable, "**Enter ORG Code Of Your Classplus App:**", user_id)
-            org_code = org_code.lower().strip()
+            org_code = await prompt_user(bot, m, editable, "**Enter ORG Code Of Your Classplus App (e.g. xyzab):**", user_id)
+            org_code = re.sub(r'https?://', '', org_code).split('/')[0].split('.')[0].strip().lower()
 
             raw_input = await prompt_user(bot, m, editable, "**Enter Access Token OR 10-digit Mobile Number:**", user_id)
             raw_input = raw_input.strip()
 
             access_token = None
+            org_id = None
+            org_headers = {
+                'api-version': '50',
+                'device-id': str(uuid.uuid4()).replace("-", "")[:32],
+                'region': 'IN',
+                'user-agent': 'Mobile-Android',
+                'content-type': 'application/json',
+                'accept': 'application/json'
+            }
+
             if raw_input.isdigit() and len(raw_input) == 10:
                 await editable.edit("**Fetching Organization Info... ⏳**")
 
-                org_info_url = f"https://api.classplusapp.com/v2/orgs/{org_code}"
-                async with session.get(org_info_url, headers=headers) as org_resp:
-                    if org_resp.status != 200:
-                        await editable.edit(f"**Invalid Org Code ❌**\n`{await org_resp.text()}`")
-                        return
-
-                    org_data = await org_resp.json()
-                    org_id = org_data.get("data", {}).get("orgId") or org_data.get("data", {}).get("id")
-
-                if not org_id:
-                    await editable.edit("**Could not resolve Organization ID ❌**")
-                    return
+                try:
+                    async with session.get(f"https://api.classplusapp.com/v2/orgs/{org_code}", headers=org_headers) as org_resp:
+                        if org_resp.status == 200:
+                            org_data = await org_resp.json()
+                            org_id = org_data.get("data", {}).get("orgId") or org_data.get("data", {}).get("id")
+                except Exception:
+                    pass
 
                 await editable.edit("**Sending OTP to Mobile Number... ⏳**")
-
-                otp_headers = {**headers, "api-version": "52"}
 
                 otp_req_payload = {
                     "countryExt": "91",
                     "mobile": raw_input,
-                    "orgId": int(org_id),
-                    "orgCode": org_code
+                    "orgId": int(org_id) if org_id else 0,
+                    "orgCode": org_code,
+                    "otpHash": ""
                 }
-                async with session.post("https://api.classplusapp.com/v2/otp/generate", json=otp_req_payload, headers=otp_headers) as otp_resp:
-                    if otp_resp.status != 200:
-                        await editable.edit(f"**Failed to Send OTP ❌**\n`{await otp_resp.text()}`")
+                async with session.post("https://api.classplusapp.com/v2/otp/generate", json=otp_req_payload, headers=org_headers) as otp_resp:
+                    if otp_resp.status not in (200, 201):
+                        err_text = await otp_resp.text()
+                        await editable.edit(f"**Failed to Send OTP ❌**\n`{err_text[:300]}`")
                         return
 
                     otp_data = await otp_resp.json()
-                    session_id = otp_data.get("data", {}).get("sessionId")
+                    session_id = otp_data.get("data", {}).get("sessionId") or otp_data.get("sessionId")
 
                 otp = await prompt_user(bot, m, editable, "**Enter OTP received on phone:**", user_id)
                 if not otp.isdigit():
-                    await editable.edit("**Invalid OTP ❌**")
+                    await editable.edit("**Invalid OTP format! ❌**")
                     return
 
                 await editable.edit("**Verifying OTP... ⏳**")
@@ -324,160 +329,176 @@ async def process_cpwp(bot: Client, m: Message, user_id: int):
                     "otp": str(otp.strip()),
                     "countryExt": "91",
                     "sessionId": str(session_id),
-                    "orgId": int(org_id),
-                    "fingerprintId": headers.get("device-id", "cc4473819ba3ee7f51f560f801574304"),
+                    "orgId": int(org_id) if org_id else 0,
+                    "fingerprintId": str(uuid.uuid4()).replace("-", "")[:32],
                     "mobile": raw_input
                 }
-                async with session.post("https://api.classplusapp.com/v2/users/verify", json=verify_payload, headers=otp_headers) as verify_resp:
+                async with session.post("https://api.classplusapp.com/v2/users/verify", json=verify_payload, headers=org_headers) as verify_resp:
                     ver_json = await verify_resp.json()
-                    if verify_resp.status != 200 or ver_json.get("status") == "failure":
+                    if verify_resp.status not in (200, 201) or ver_json.get("status") == "failure":
                         err_msg = ver_json.get("message") or await verify_resp.text()
-                        await editable.edit(f"**OTP Verification Failed ❌**\n`{err_msg}`")
+                        await editable.edit(f"**OTP Verification Failed ❌**\n`{err_msg[:300]}`")
                         return
 
                     access_token = (
                         ver_json.get("data", {}).get("token")
                         or ver_json.get("data", {}).get("user", {}).get("token")
                         or ver_json.get("token")
+                        or ver_json.get("data", {}).get("accessToken")
                     )
 
                 if not access_token:
                     await editable.edit("**Failed to retrieve Access Token from Classplus ❌**")
                     return
 
-                await editable.edit(f"**Classplus Login Successful ✅**\n\n**Token:** `{access_token}`\n\n**Do not share this token with anyone save it anywhere in private.**")
+                await editable.edit(f"**Classplus Login Successful ✅**\n\n**Token:**\n`{access_token}`")
                 editable = await m.reply_text("**Wait Processing Your Request....**")
             else:
-                access_token = raw_input
+                access_token = raw_input.strip().strip('"').strip("'")
+                if access_token.lower().startswith("bearer "):
+                    access_token = access_token[7:].strip()
 
             headers['x-access-token'] = access_token
+            headers['api-version'] = '50'
 
-            hash_headers = {
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br, zstd',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': f'https://{org_code}.courses.store/?mainCategory=0',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-            }
+            token = None
+            try:
+                hash_headers = {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                async with session.get(f"https://{org_code}.courses.store", headers=hash_headers) as response:
+                    if response.status == 200:
+                        html_text = await response.text()
+                        hash_match = re.search(r'["\']hash["\']\s*:\s*["\']([^"\']+)["\']', html_text)
+                        if hash_match:
+                            token = hash_match.group(1)
+                        else:
+                            m_next = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_text, re.DOTALL)
+                            if m_next:
+                                try:
+                                    n_data = json.loads(m_next.group(1))
+                                    token = n_data.get('props', {}).get('pageProps', {}).get('orgData', {}).get('hash')
+                                except Exception:
+                                    pass
+            except Exception:
+                pass
 
-            async with session.get(f"https://{org_code}.courses.store", headers=hash_headers) as response:
-                html_text = await response.text()
-                hash_match = re.search(r'["\']hash["\']\s*:\s*["\']([^"\']+)["\']', html_text)
+            if not token:
+                token = org_code
 
-                if not hash_match:
-                    await editable.edit("**No App Found In Org Code ❌**")
-                    return
-
-                token = hash_match.group(1)
-
-                async with session.get(f"https://api.classplusapp.com/v2/course/preview/similar/{token}?limit=20", headers=headers) as resp:
-                    if resp.status != 200:
-                        await editable.edit(f"**Error Fetching Courses:** `{await resp.text()}`")
-                        return
-
+            courses = []
+            async with session.get(f"https://api.classplusapp.com/v2/course/preview/similar/{token}?limit=50", headers=headers) as resp:
+                if resp.status == 200:
                     res_json = await resp.json()
                     courses = res_json.get('data', {}).get('coursesData', [])
 
-                    if not courses:
-                        await editable.edit("**Didn't Find Any Course ❌**")
+            if not courses:
+                async with session.get("https://api.classplusapp.com/v2/course/my-courses", headers=headers) as resp2:
+                    if resp2.status == 200:
+                        res2_json = await resp2.json()
+                        courses = res2_json.get('data', {}).get('coursesData', []) or res2_json.get('data', [])
+
+            if not courses:
+                await editable.edit("**No Courses Found for this Org Code/Token ❌**")
+                return
+
+            text = ''.join([f"<blockquote>**{cnt + 1}.** `\n{c.get('name', 'Course')} 💵₹{c.get('finalPrice', '0')}`</blockquote>\n" for cnt, c in enumerate(courses)])
+            raw_text2 = await prompt_user(bot, m, editable, f"**Send index number of the Course:**\n\n{text}\n**Or enter search keyword:**", user_id)
+
+            raw_text2 = raw_text2.strip()
+            if raw_text2.isdigit() and 1 <= int(raw_text2) <= len(courses):
+                selected_course_index = int(raw_text2)
+                course = courses[selected_course_index - 1]
+            else:
+                search_url = f"https://api.classplusapp.com/v2/course/preview/similar/{token}?search={raw_text2}"
+                async with session.get(search_url, headers=headers) as search_resp:
+                    if search_resp.status == 200:
+                        search_json = await search_resp.json()
+                        search_courses = search_json.get("data", {}).get("coursesData", [])
+
+                        if not search_courses:
+                            await editable.edit("**Didn't Find Any Course Matching The Search Term ❌**")
+                            return
+
+                        text_search = ''.join([f"<blockquote>**{cnt + 1}.** `\n{c.get('name', 'Course')} 💵₹{c.get('finalPrice', '0')}`</blockquote>\n" for cnt, c in enumerate(search_courses)])
+                        raw_text3 = await prompt_user(bot, m, editable, f"**Send index number of the Batch to download:**\n\n{text_search}", user_id)
+
+                        raw_text3 = raw_text3.strip()
+                        if raw_text3.isdigit() and 1 <= int(raw_text3) <= len(search_courses):
+                            selected_course_index = int(raw_text3)
+                            course = search_courses[selected_course_index - 1]
+                        else:
+                            await editable.edit("**Wrong Index Number ❌**")
+                            return
+                    else:
+                        await editable.edit(f"**Error:** `{await search_resp.text()}`")
                         return
 
-                    text = ''.join([f"<blockquote>**{cnt + 1}.** `\n{c['name']} 💵₹{c['finalPrice']}`</blockquote>\n" for cnt, c in enumerate(courses)])
-                    raw_text2 = await prompt_user(bot, m, editable, f"**Send index number of the Category Name**\n\n{text}\n**If Your Batch Not Listed Then Enter Your Batch Name**", user_id)
+            selected_batch_id = course.get('id') or course.get('_id')
+            selected_batch_name = course.get('name', 'Classplus_Batch')
+            clean_batch_name = re.sub(r'[\\/*?:"<>|]', "-", selected_batch_name)
+            file_path = f"{clean_batch_name}.txt"
 
-                    raw_text2 = raw_text2.strip()
-                    if raw_text2.isdigit() and 1 <= int(raw_text2) <= len(courses):
-                        selected_course_index = int(raw_text2)
-                        course = courses[selected_course_index - 1]
+            batch_headers = {
+                'Accept': 'application/json, text/plain, */*',
+                'region': 'IN',
+                'accept-language': 'EN',
+                'Api-Version': '50',
+                'x-access-token': access_token,
+                'tutorWebsiteDomain': f'https://{org_code}.courses.store'
+            }
+
+            params = {'courseId': f'{selected_batch_id}'}
+
+            async with session.get("https://api.classplusapp.com/v2/course/preview/org/info", params=params, headers=batch_headers) as info_resp:
+                if info_resp.status == 200:
+                    res_info = await info_resp.json()
+                    Batch_Token = res_info['data']['hash']
+                    App_Name = res_info['data']['name']
+
+                    start_time = time.time()
+                    await update_status_card(
+                        editable=editable,
+                        task_name=f"Extracting: {selected_batch_name}",
+                        current=0,
+                        total=100,
+                        start_time=start_time,
+                        activity="Initializing content crawler..."
+                    )
+
+                    course_content, video_count, pdf_count, image_count = await get_cpwp_course_content(
+                        session, headers, Batch_Token, editable, start_time
+                    )
+
+                    if course_content:
+                        await update_status_card(
+                            editable=editable,
+                            task_name=f"Extracting: {selected_batch_name}",
+                            current=100,
+                            total=100,
+                            start_time=start_time,
+                            activity="Saving content links to file..."
+                        )
+
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(''.join(course_content))
+
+                        formatted_time = format_time(time.time() - start_time)
+
+                        await editable.delete()
+
+                        caption = f"**App Name : ```\n{App_Name}({org_code})```\nBatch Name : ```\n{selected_batch_name}``````\n🎬 : {video_count} | 📁 : {pdf_count} | 🖼  : {image_count}``````\nTime Taken : {formatted_time}```**"
+
+                        with open(file_path, 'rb') as f:
+                            await m.reply_document(document=f, caption=caption, file_name=f"{clean_batch_name}.txt")
+
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
                     else:
-                        search_url = f"https://api.classplusapp.com/v2/course/preview/similar/{token}?search={raw_text2}"
-                        async with session.get(search_url, headers=headers) as search_resp:
-                            if search_resp.status == 200:
-                                search_json = await search_resp.json()
-                                search_courses = search_json.get("data", {}).get("coursesData", [])
-
-                                if not search_courses:
-                                    await editable.edit("**Didn't Find Any Course Matching The Search Term ❌**")
-                                    return
-
-                                text_search = ''.join([f"<blockquote>**{cnt + 1}.** `\n{c['name']} 💵₹{c['finalPrice']}`</blockquote>\n" for cnt, c in enumerate(search_courses)])
-                                raw_text3 = await prompt_user(bot, m, editable, f"**Send index number of the Batch to download.**\n\n{text_search}", user_id)
-
-                                raw_text3 = raw_text3.strip()
-                                if raw_text3.isdigit() and 1 <= int(raw_text3) <= len(search_courses):
-                                    selected_course_index = int(raw_text3)
-                                    course = search_courses[selected_course_index - 1]
-                                else:
-                                    await editable.edit("**Wrong Index Number ❌**")
-                                    return
-                            else:
-                                await editable.edit(f"**Error:** `{await search_resp.text()}`")
-                                return
-
-                    selected_batch_id = course['id']
-                    selected_batch_name = course['name']
-                    clean_batch_name = re.sub(r'[\\/*?:"<>|]', "-", selected_batch_name)
-                    file_path = f"{clean_batch_name}.txt"
-
-                    batch_headers = {
-                        'Accept': 'application/json, text/plain, */*',
-                        'region': 'IN',
-                        'accept-language': 'EN',
-                        'Api-Version': '22',
-                        'x-access-token': access_token,
-                        'tutorWebsiteDomain': f'https://{org_code}.courses.store'
-                    }
-
-                    params = {'courseId': f'{selected_batch_id}'}
-
-                    async with session.get("https://api.classplusapp.com/v2/course/preview/org/info", params=params, headers=batch_headers) as info_resp:
-                        if info_resp.status == 200:
-                            res_info = await info_resp.json()
-                            Batch_Token = res_info['data']['hash']
-                            App_Name = res_info['data']['name']
-
-                            start_time = time.time()
-                            await update_status_card(
-                                editable=editable,
-                                task_name=f"Extracting: {selected_batch_name}",
-                                current=0,
-                                total=100,
-                                start_time=start_time,
-                                activity="Initializing content crawler..."
-                            )
-
-                            course_content, video_count, pdf_count, image_count = await get_cpwp_course_content(
-                                session, headers, Batch_Token, editable, start_time
-                            )
-
-                            if course_content:
-                                await update_status_card(
-                                    editable=editable,
-                                    task_name=f"Extracting: {selected_batch_name}",
-                                    current=100,
-                                    total=100,
-                                    start_time=start_time,
-                                    activity="Saving content links to file..."
-                                )
-
-                                with open(file_path, 'w', encoding='utf-8') as f:
-                                    f.write(''.join(course_content))
-
-                                formatted_time = format_time(time.time() - start_time)
-
-                                await editable.delete()
-
-                                caption = f"**App Name : ```\n{App_Name}({org_code})```\nBatch Name : ```\n{selected_batch_name}``````\n🎬 : {video_count} | 📁 : {pdf_count} | 🖼  : {image_count}``````\nTime Taken : {formatted_time}```**"
-
-                                with open(file_path, 'rb') as f:
-                                    await m.reply_document(document=f, caption=caption, file_name=f"{clean_batch_name}.txt")
-
-                                if os.path.exists(file_path):
-                                    os.remove(file_path)
-                            else:
-                                await editable.edit("**Didn't Find Any Content In The Course ❌**")
-                        else:
-                            await editable.edit(f"**Error:** `{await info_resp.text()}`")
+                        await editable.edit("**Didn't Find Any Content In The Course ❌**")
+                else:
+                    await editable.edit(f"**Error:** `{await info_resp.text()}`")
 
         except ProcessCancelledException:
             pass
@@ -502,3 +523,5 @@ def register_cpwp_handlers(bot: Client):
             return
         await callback_query.answer()
         asyncio.create_task(process_cpwp(client, callback_query.message, user_id))
+
+process_cp = process_cpwp

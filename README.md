@@ -1,39 +1,37 @@
-<p align="center">
-  <img src="https://i.ibb.co/dJ0gpJf1/photo-2025-06-16-12-07-05-7516517596376596504.jpg" alt="VJ-COURSE-EXTRACTOR-BOT Logo">
-</p>
-<h1 align="center">
-  VJ COURSE EXTRACTOR BOT
-</h1>
+# Zx CRC Extractor (Fixed & Updated)
 
-## Deploy Tutorial - [Video Link](https://youtu.be/UXjo1oGe3h0)
+Fully patched and optimized multi-platform batch and lecture extractor bot for PW, Classplus, and Appx.
 
-## Credit
+## Key Updates & Fixes
+- **Appx CDN Migration**: Automatic URL transformation to `https://appx-content-v2.classx.co.in/` without dead or expired signature parameters.
+- **Concurrent PDF & Video Extraction**: Lectures with both video streams and PDF notes extract both concurrently without skipping.
+- **AES-128 Decryption**: Decrypts DRM/encrypted streams and notes on the fly.
+- **Python 3.10 / 3.12 / 3.14 Compatibility**: Event loop auto-initialization prevents Pyrogram startup crashes.
 
-<b><details><summary>Tap On Me For See Credit</summary>
+## Quick Start
 
-💝 Credit Goes To [Tech VJ](https://telegram.me/VJ_Bots) So Don't Forgot To Give Credit
+### 1. Install Requirements
+```bash
+pip install -r requirements.txt
+```
 
-💖 And Thank You So Much To All Who Help In This Journey 💕
+### 2. Configure Credentials
+Edit `config.py`:
+```python
+api_id = 12345678                  # Your Telegram API ID
+api_hash = "your_api_hash_here"    # Your Telegram API Hash
+bot_token = "your_bot_token_here"  # From @BotFather
+auth_users = []                    # Empty allows all users
+```
 
-Copyright ©️ [Tech VJ](https://youtube.com/@Tech_VJ)
+### 3. Run Telegram Bot
+```bash
+python main.py
+```
 
-</b>
-</details>
-
-## About Owner 
-
-<b><details><summary>Tap On Me For See Details Of Owner</summary>
-
-- YouTube Channel : [Tech VJ](https://youtube.com/@Tech_VJ)
-- Telegram Channel : [VJ Bots](https://telegram.me/VJ_Bots)
-- Contact Link : [King VJ](https://telegram.me/Kingvj01)
-- Instagram Id Link : [Tech VJ](https://instagram.com/tech.vj)
-
-</b>
-</details>
-
-
-### Copyright ©️ [Tech VJ](https://youtube.com/@Tech_VJ)
-
-<b>Selling This Repo Or Code Of This Repo For Money Is Strictly Prohibited 🚫</b>
-
+### 4. Standalone Link Fixer (Batch Offline)
+To fix an existing dead links file:
+```bash
+python fix_urls.py
+```
+Outputs verified working links to `cleaned_working_links.txt`.

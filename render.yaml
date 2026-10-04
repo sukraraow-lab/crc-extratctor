@@ -1,16 +1,12 @@
 services:
-  - type: worker
-    name: zerotrace-bot
+  - type: web
+    name: crc-extractor-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     autoDeploy: true
     envVars:
-      - key: API_ID
-        sync: false
-      - key: API_HASH
-        sync: false
-      - key: BOT_TOKEN
-        sync: false
-      - key: AUTH_USERS
-        sync: false
+      - key: PORT
+        value: 8080
+      - key: PYTHON_VERSION
+        value: 3.11.9
